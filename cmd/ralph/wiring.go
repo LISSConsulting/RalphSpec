@@ -62,6 +62,11 @@ func runWithRegent(ctx context.Context, lp *loop.Loop, cfg *config.Config, gitRu
 // Loop events are forwarded through the Regent for state/hang tracking, then
 // sent to the TUI. Regent messages are sent directly to the TUI channel.
 func runWithRegentTUI(ctx context.Context, lp *loop.Loop, cfg *config.Config, gitRunner *git.Runner, dir string, sw store.Writer, sr store.Reader, run regent.RunFunc) error {
+	// Derive a loop-scoped context so we can tear the loop down (and its
+	// Claude subprocess) the moment the TUI exits.
+	loopCtx, cancelLoop := context.WithCancel(ctx)
+	defer cancelLoop()
+
 	loopEvents := make(chan loop.LogEntry, 128)
 	tuiEvents := make(chan loop.LogEntry, 128)
 
@@ -99,24 +104,24 @@ func runWithRegentTUI(ctx context.Context, lp *loop.Loop, cfg *config.Config, gi
 	errCh := make(chan error, 1)
 	go func() {
 		defer close(tuiEvents)
-		superviseErr := rgt.Supervise(ctx, run)
+		superviseErr := rgt.Supervise(loopCtx, run)
 		close(loopEvents)
 		<-forwardDone
 		errCh <- superviseErr
 	}()
 
 	tuiErr := finishTUI(program)
+
+	// TUI exited — cancel and block on the loop goroutine so Claude is
+	// actually killed before we return.
+	cancelLoop()
+	loopErr := <-errCh
+
 	if tuiErr != nil {
 		return tuiErr
 	}
-
-	// Collect Regent/loop error if available.
-	select {
-	case loopErr := <-errCh:
-		if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
-			return loopErr
-		}
-	default:
+	if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
+		return loopErr
 	}
 	return nil
 }
@@ -173,6 +178,12 @@ func runWithStateTracking(ctx context.Context, lp *loop.Loop, dir string, gitRun
 // runWithTUIAndState runs the loop without Regent supervision with TUI display,
 // forwarding events through a state tracker so `ralph status` works.
 func runWithTUIAndState(ctx context.Context, lp *loop.Loop, dir string, gitRunner *git.Runner, mode string, accentColor string, projectName string, sw store.Writer, sr store.Reader, run regent.RunFunc) error {
+	// Derive a loop-scoped context so we can tear the loop down (and its
+	// Claude subprocess) the moment the TUI exits, without relying on
+	// deferred cancel() chains that race with process exit.
+	loopCtx, cancelLoop := context.WithCancel(ctx)
+	defer cancelLoop()
+
 	loopEvents := make(chan loop.LogEntry, 128)
 	tuiEvents := make(chan loop.LogEntry, 128)
 
@@ -210,25 +221,25 @@ func runWithTUIAndState(ctx context.Context, lp *loop.Loop, dir string, gitRunne
 	errCh := make(chan error, 1)
 	go func() {
 		defer close(tuiEvents)
-		runErr := run(ctx)
+		runErr := run(loopCtx)
 		close(loopEvents)
 		<-forwardDone
 		errCh <- runErr
 	}()
 
 	tuiErr := finishTUI(program)
+
+	// TUI has exited — cancel the loop and block until its goroutine finishes
+	// so exec.CommandContext actually tears Claude down before we return.
+	cancelLoop()
+	loopErr := <-errCh
+	st.finish(loopErr)
+
 	if tuiErr != nil {
 		return tuiErr
 	}
-
-	select {
-	case loopErr := <-errCh:
-		st.finish(loopErr)
-		if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
-			return loopErr
-		}
-	default:
-		st.finish(nil)
+	if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
+		return loopErr
 	}
 	return nil
 }
@@ -304,6 +315,7 @@ type loopController struct {
 	outerCtx  context.Context
 	mu        sync.Mutex
 	cancel    context.CancelFunc
+	done      chan struct{} // closed when the active runLoop goroutine exits; nil when idle
 	// agent overrides the default claude binary; nil → loop.NewClaudeAgent().
 	// Used in tests to inject a fast-failing fake.
 	agent claude.Agent
@@ -325,10 +337,12 @@ func (lc *loopController) StartLoop(mode string) {
 		return
 	}
 	ctx, cancel := context.WithCancel(lc.outerCtx)
+	done := make(chan struct{})
 	lc.cancel = cancel
+	lc.done = done
 	lc.mu.Unlock()
 
-	go lc.runLoop(ctx, mode)
+	go lc.runLoop(ctx, mode, done)
 }
 
 // StopLoop immediately cancels the running loop. No-op if idle.
@@ -340,8 +354,26 @@ func (lc *loopController) StopLoop() {
 	}
 }
 
+// Shutdown cancels any running loop and blocks until its goroutine exits.
+// Call this after the dashboard TUI closes so the Claude subprocess is torn
+// down before Ralph returns to the shell.
+func (lc *loopController) Shutdown() {
+	lc.mu.Lock()
+	cancel := lc.cancel
+	done := lc.done
+	lc.mu.Unlock()
+	if cancel == nil {
+		return
+	}
+	cancel()
+	if done != nil {
+		<-done
+	}
+}
+
 // runLoop executes the loop and forwards events to the TUI channel.
-func (lc *loopController) runLoop(ctx context.Context, mode string) {
+func (lc *loopController) runLoop(ctx context.Context, mode string, done chan struct{}) {
+	defer close(done)
 	agent := lc.agent
 	if agent == nil {
 		agent = loop.NewClaudeAgent()
@@ -391,6 +423,7 @@ func (lc *loopController) runLoop(ctx context.Context, mode string) {
 
 	lc.mu.Lock()
 	lc.cancel = nil
+	lc.done = nil
 	lc.mu.Unlock()
 
 	_ = runErr
@@ -429,5 +462,11 @@ func runDashboard(ctx context.Context, cfg *config.Config, dir string, sw store.
 	}
 
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	return finishTUI(program)
+	tuiErr := finishTUI(program)
+
+	// Tear down any loop the user started from the dashboard so Claude doesn't
+	// keep running after the TUI exits.
+	ctrl.Shutdown()
+
+	return tuiErr
 }

@@ -38,6 +38,12 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 		cmd.Dir = opts.Dir
 	}
 	isolateProcess(cmd)
+	// Override the default ctx-cancel behaviour (Kill on the top-level process
+	// only) so Claude's own tool subprocesses are torn down with it. Without
+	// this, the Node process dies but its children are reparented and keep
+	// running — which is how Ralph ended up leaving Claude instances alive
+	// after the TUI exited.
+	cmd.Cancel = func() error { return killProcessTree(cmd.Process) }
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("claude agent: stdout pipe: %w", err)
