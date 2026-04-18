@@ -294,6 +294,34 @@ func TestParseStream_AssistantNoMessage(t *testing.T) {
 	}
 }
 
+// TestParseStream_HugeLine ensures the parser handles stream-JSON lines that
+// exceed bufio.Scanner's default cap. This used to fail with "bufio.Scanner:
+// token too long" when Playwright screenshot tool results (base64 PNG) arrived
+// as a single line of several MB.
+func TestParseStream_HugeLine(t *testing.T) {
+	// 4 MB of filler text inside a text block — comfortably past bufio.Scanner's
+	// 1 MB cap that the parser previously used.
+	const size = 4 * 1024 * 1024
+	filler := strings.Repeat("A", size)
+	input := fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"text","text":%q}]}}`+"\n", filler)
+
+	ch := ParseStream(strings.NewReader(input))
+	var got []Event
+	for ev := range ch {
+		got = append(got, ev)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("got %d events, want 1", len(got))
+	}
+	if got[0].Type != EventText {
+		t.Fatalf("event[0].Type = %q, want %q", got[0].Type, EventText)
+	}
+	if len(got[0].Text) != size {
+		t.Errorf("event[0].Text length = %d, want %d", len(got[0].Text), size)
+	}
+}
+
 func TestParseStream_ScannerError(t *testing.T) {
 	validLine := `{"type":"result","cost_usd":0.05,"duration_ms":1000}` + "\n"
 	r := &errAfterReader{

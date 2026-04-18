@@ -2,7 +2,9 @@ package claude
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -10,26 +12,30 @@ import (
 // ParseStream reads stream-JSON lines from r and sends parsed Events on the
 // returned channel. The channel is closed when r reaches EOF or an error.
 // This parses Claude CLI output from --output-format=stream-json --verbose.
+//
+// Uses bufio.Reader.ReadBytes rather than bufio.Scanner because a single
+// stream-JSON line can be arbitrarily large — e.g. a Playwright screenshot
+// tool result embedding a base64-encoded PNG — and bufio.Scanner has a hard
+// line-length cap that aborts the parser with "token too long" when exceeded.
 func ParseStream(r io.Reader) <-chan Event {
 	ch := make(chan Event, 64)
 	go func() {
 		defer close(ch)
-		scanner := bufio.NewScanner(r)
-		// Allow up to 1MB lines (Claude can produce large tool outputs)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
+		br := bufio.NewReaderSize(r, 64*1024)
+		for {
+			line, err := br.ReadBytes('\n')
+			line = bytes.TrimRight(line, "\r\n")
+			if len(line) > 0 {
+				for _, ev := range parseLine(line) {
+					ch <- ev
+				}
 			}
-			events := parseLine(line)
-			for _, ev := range events {
-				ch <- ev
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					ch <- ErrorEvent(fmt.Sprintf("stream read error: %v", err))
+				}
+				return
 			}
-		}
-		if err := scanner.Err(); err != nil {
-			ch <- ErrorEvent(fmt.Sprintf("stream read error: %v", err))
 		}
 	}()
 	return ch
