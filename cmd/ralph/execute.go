@@ -321,11 +321,16 @@ func showStatus() error {
 // formatStatus renders a Regent state snapshot as a human-readable status
 // string. The now parameter pins the current time for deterministic output.
 func formatStatus(state regent.State, now time.Time) string {
-	return formatStatusWithPIDCheck(state, now, processExists)
+	result := classifyResult(state)
+	return formatStatusWithResult(state, now, result)
 }
 
 func formatStatusWithPIDCheck(state regent.State, now time.Time, pidRunning func(int) bool) string {
 	result := classifyResultWithPIDCheck(state, pidRunning)
+	return formatStatusWithResult(state, now, result)
+}
+
+func formatStatusWithResult(state regent.State, now time.Time, result statusResult) string {
 	if result == statusNoState {
 		return "No state found. Run 'ralph build' or 'ralph run' first.\n"
 	}
@@ -349,13 +354,14 @@ func formatStatusWithPIDCheck(state regent.State, now time.Time, pidRunning func
 	fmt.Fprintf(&b, "  %-20s %d\n", "Iteration:", state.Iteration)
 	fmt.Fprintf(&b, "  %-20s $%.2f\n", "Total cost:", state.TotalCostUSD)
 
-	if result == statusRunning {
+	switch {
+	case result == statusRunning:
 		elapsed := now.Sub(state.StartedAt).Round(time.Second)
 		fmt.Fprintf(&b, "  %-20s %s (running)\n", "Duration:", elapsed)
-	} else if !state.StartedAt.IsZero() && state.FinishedAt.IsZero() {
+	case !state.StartedAt.IsZero() && state.FinishedAt.IsZero():
 		elapsed := now.Sub(state.StartedAt).Round(time.Second)
 		fmt.Fprintf(&b, "  %-20s %s\n", "Duration:", elapsed)
-	} else if !state.StartedAt.IsZero() && !state.FinishedAt.IsZero() {
+	case !state.StartedAt.IsZero() && !state.FinishedAt.IsZero():
 		dur := state.FinishedAt.Sub(state.StartedAt).Round(time.Second)
 		fmt.Fprintf(&b, "  %-20s %s\n", "Duration:", dur)
 	}
@@ -441,9 +447,7 @@ func classifyResultWithPIDCheck(state regent.State, pidRunning func(int) bool) s
 	switch {
 	case running && pidRunning(state.RalphPID):
 		return statusRunning
-	case state.Passed:
-		return statusPass
-	case state.ConsecutiveErrs > 0:
+	case running && state.ConsecutiveErrs > 0:
 		return statusFailWithErrors
 	case running:
 		return statusFail
