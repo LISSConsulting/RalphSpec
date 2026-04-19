@@ -44,6 +44,15 @@ func TestClassifyResult(t *testing.T) {
 			want: statusRunning,
 		},
 		{
+			name: "stale unfinished state becomes fail",
+			state: regent.State{
+				RalphPID:  123,
+				Iteration: 3,
+				StartedAt: past,
+			},
+			want: statusFail,
+		},
+		{
 			name: "pass — finished with Passed true",
 			state: regent.State{
 				RalphPID:   123,
@@ -115,7 +124,10 @@ func TestClassifyResult(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := classifyResult(tt.state)
+			pidRunning := func(pid int) bool {
+				return (tt.name == "running — started but not finished" || tt.name == "running wins over passed") && pid == 123
+			}
+			got := classifyResultWithPIDCheck(tt.state, pidRunning)
 			if got != tt.want {
 				t.Errorf("classifyResult() = %d, want %d", got, tt.want)
 			}
@@ -229,6 +241,26 @@ func TestFormatStatus(t *testing.T) {
 			},
 		},
 		{
+			name: "stale unfinished state shows fail not running",
+			state: regent.State{
+				RalphPID:     999999,
+				Iteration:    3,
+				Branch:       "feat/test",
+				Mode:         "build",
+				TotalCostUSD: 0.42,
+				StartedAt:    started,
+				LastOutputAt: lastOutput,
+			},
+			contains: []string{
+				"Ralph Status",
+				"Duration:",
+				"10m0s",
+				"Result:",
+				"fail",
+			},
+			excludes: []string{"(running)", "Last output:", "running"},
+		},
+		{
 			name: "pass — shows duration and pass result",
 			state: regent.State{
 				RalphPID:     123,
@@ -316,7 +348,10 @@ func TestFormatStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := formatStatus(tt.state, now)
+			pidRunning := func(pid int) bool {
+				return (tt.name == "running — shows elapsed duration and last output" || tt.name == "running without last output — omits last output line") && pid == 123
+			}
+			got := formatStatusWithPIDCheck(tt.state, now, pidRunning)
 			for _, want := range tt.contains {
 				if !strings.Contains(got, want) {
 					t.Errorf("output should contain %q\ngot:\n%s", want, got)

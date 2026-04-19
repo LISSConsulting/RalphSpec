@@ -321,7 +321,11 @@ func showStatus() error {
 // formatStatus renders a Regent state snapshot as a human-readable status
 // string. The now parameter pins the current time for deterministic output.
 func formatStatus(state regent.State, now time.Time) string {
-	result := classifyResult(state)
+	return formatStatusWithPIDCheck(state, now, processExists)
+}
+
+func formatStatusWithPIDCheck(state regent.State, now time.Time, pidRunning func(int) bool) string {
+	result := classifyResultWithPIDCheck(state, pidRunning)
 	if result == statusNoState {
 		return "No state found. Run 'ralph build' or 'ralph run' first.\n"
 	}
@@ -348,6 +352,9 @@ func formatStatus(state regent.State, now time.Time) string {
 	if result == statusRunning {
 		elapsed := now.Sub(state.StartedAt).Round(time.Second)
 		fmt.Fprintf(&b, "  %-20s %s (running)\n", "Duration:", elapsed)
+	} else if !state.StartedAt.IsZero() && state.FinishedAt.IsZero() {
+		elapsed := now.Sub(state.StartedAt).Round(time.Second)
+		fmt.Fprintf(&b, "  %-20s %s\n", "Duration:", elapsed)
 	} else if !state.StartedAt.IsZero() && !state.FinishedAt.IsZero() {
 		dur := state.FinishedAt.Sub(state.StartedAt).Round(time.Second)
 		fmt.Fprintf(&b, "  %-20s %s\n", "Duration:", dur)
@@ -423,13 +430,23 @@ const (
 // classifyResult determines the result label from a Regent state snapshot.
 // The priority order is: no-state, running, pass, fail-with-errors, plain-fail.
 func classifyResult(state regent.State) statusResult {
+	return classifyResultWithPIDCheck(state, processExists)
+}
+
+func classifyResultWithPIDCheck(state regent.State, pidRunning func(int) bool) statusResult {
 	if state.RalphPID == 0 && state.Iteration == 0 {
 		return statusNoState
 	}
 	running := !state.StartedAt.IsZero() && state.FinishedAt.IsZero()
 	switch {
-	case running:
+	case running && pidRunning(state.RalphPID):
 		return statusRunning
+	case state.Passed:
+		return statusPass
+	case state.ConsecutiveErrs > 0:
+		return statusFailWithErrors
+	case running:
+		return statusFail
 	case state.Passed:
 		return statusPass
 	case state.ConsecutiveErrs > 0:
