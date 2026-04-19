@@ -1,0 +1,51 @@
+# Quickstart: Codex Agent Support
+
+## 1. Ensure Codex CLI is available
+
+```powershell
+codex --help
+codex login
+```
+
+## 2. Select Codex for the project
+
+Add or update `ralph.toml`:
+
+```toml
+[agent]
+type = "codex"
+
+[codex]
+model = ""
+```
+
+## 3. Run a supported Codex flow
+
+Examples:
+
+```powershell
+ralph loop plan --agent codex --no-tui
+ralph build --agent codex --no-tui
+ralph loop run --agent codex --no-tui
+```
+
+Expected behavior:
+- Ralph resolves `codex` as the effective agent
+- Startup validates Codex availability before the first iteration
+- Live output and stored session metadata identify Codex as the active agent
+
+## 4. Verify persisted metadata
+
+- Inspect `.ralph/regent-state.json` for the recorded agent
+- Inspect the latest JSONL session log in `.ralph/logs/`
+- Confirm `ralph status` or TUI status surfaces the selected agent
+
+## 5. Verify unsupported scope is rejected cleanly
+
+```powershell
+ralph build --worktree --agent codex
+```
+
+Expected behavior:
+- Ralph exits before starting work
+- The error explains that Codex worktree support is not part of the initial release
