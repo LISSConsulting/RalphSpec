@@ -60,7 +60,7 @@ ralph build
 ralph
 ```
 
-That's it. Ralph reads your spec, drives Claude through iterations, commits results, and the Regent supervises the whole thing.
+That's it. Ralph reads your spec, drives the selected agent through iterations, commits results, and the Regent supervises the whole thing.
 
 ---
 
@@ -302,10 +302,16 @@ Place `ralph.toml` in your project root. All fields are optional with sensible d
 [project]
 name = "MyProject"
 
+[agent]
+type = "claude"               # claude or codex
+
 [claude]
 model = "sonnet"              # Claude model to use
 max_turns = 0                 # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
+
+[codex]
+model = ""                    # optional Codex model override
 
 [plan]
 prompt_file = "PLAN.md"       # prompt template for plan iterations
@@ -486,7 +492,7 @@ ralph build -w --no-tui --max 5
 | Agent | Status | Description |
 |-------|:------:|-------------|
 | 🤖 Claude Code CLI | ✅ | Default — streaming JSON event parser, full integration |
-| 🔮 OpenAI Codex | 🔜 | Planned |
+| 🔮 OpenAI Codex | ✅ | Opt-in for supported single-run `build`, `loop build`, `loop plan`, and `loop run` flows |
 | 💎 Gemini | 🔜 | Planned |
 | 🔧 Custom | 🔜 | Bring your own agent via adapter interface |
 

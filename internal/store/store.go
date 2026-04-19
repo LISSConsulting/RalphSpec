@@ -34,6 +34,7 @@ type Store interface {
 // IterationSummary summarises one completed loop iteration.
 type IterationSummary struct {
 	Number   int
+	Agent    string
 	Mode     string
 	CostUSD  float64
 	Duration float64
@@ -46,6 +47,7 @@ type IterationSummary struct {
 // SessionSummary summarises the current session.
 type SessionSummary struct {
 	SessionID  string
+	Agent      string
 	StartedAt  time.Time
 	TotalCost  float64
 	Iterations int

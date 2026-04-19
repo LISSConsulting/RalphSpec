@@ -152,7 +152,7 @@ func runWithStateTracking(ctx context.Context, lp *loop.Loop, dir string, gitRun
 	events := make(chan loop.LogEntry, 128)
 	lp.Events = events
 
-	st := newStateTracker(dir, mode, gitRunner)
+	st := newStateTracker(dir, mode, lp.AgentType, gitRunner)
 	st.save()
 
 	drainDone := make(chan struct{})
@@ -195,7 +195,7 @@ func runWithTUIAndState(ctx context.Context, lp *loop.Loop, dir string, gitRunne
 
 	lp.Events = loopEvents
 
-	st := newStateTracker(dir, mode, gitRunner)
+	st := newStateTracker(dir, mode, lp.AgentType, gitRunner)
 	st.save()
 
 	specFiles, _ := spec.List(dir)
@@ -251,13 +251,14 @@ type stateTracker struct {
 	dir   string
 }
 
-func newStateTracker(dir, mode string, gitRunner *git.Runner) *stateTracker {
+func newStateTracker(dir, mode, agent string, gitRunner *git.Runner) *stateTracker {
 	branch, _ := gitRunner.CurrentBranch()
 	now := time.Now()
 	return &stateTracker{
 		dir: dir,
 		state: regent.State{
 			RalphPID:     os.Getpid(),
+			Agent:        agent,
 			Branch:       branch,
 			Mode:         mode,
 			StartedAt:    now,
@@ -278,6 +279,10 @@ func (s *stateTracker) trackEntry(entry loop.LogEntry) {
 	}
 	if entry.Commit != "" {
 		s.state.LastCommit = entry.Commit
+		changed = true
+	}
+	if entry.Agent != "" {
+		s.state.Agent = entry.Agent
 		changed = true
 	}
 	if entry.Branch != "" {
@@ -316,7 +321,7 @@ type loopController struct {
 	mu        sync.Mutex
 	cancel    context.CancelFunc
 	done      chan struct{} // closed when the active runLoop goroutine exits; nil when idle
-	// agent overrides the default claude binary; nil → loop.NewClaudeAgent().
+	// agent overrides the resolved runtime agent when non-nil.
 	// Used in tests to inject a fast-failing fake.
 	agent claude.Agent
 }
@@ -375,14 +380,28 @@ func (lc *loopController) Shutdown() {
 func (lc *loopController) runLoop(ctx context.Context, mode string, done chan struct{}) {
 	defer close(done)
 	agent := lc.agent
+	agentType, err := resolveAgent(lc.cfg, "")
+	if err != nil {
+		lc.emitLoopError(err)
+		return
+	}
+	if err := validateAgentFlow(agentType, false, true); err != nil {
+		lc.emitLoopError(err)
+		return
+	}
 	if agent == nil {
-		agent = loop.NewClaudeAgent()
+		agent, err = buildAgent(agentType)
+		if err != nil {
+			lc.emitLoopError(err)
+			return
+		}
 	}
 	lp := &loop.Loop{
-		Agent:  agent,
-		Git:    lc.gitRunner,
-		Config: lc.cfg,
-		Dir:    lc.dir,
+		Agent:     agent,
+		AgentType: agentType,
+		Git:       lc.gitRunner,
+		Config:    lc.cfg,
+		Dir:       lc.dir,
 	}
 	loopEvents := make(chan loop.LogEntry, 128)
 	lp.Events = loopEvents
@@ -427,6 +446,17 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 	lc.mu.Unlock()
 
 	_ = runErr
+}
+
+func (lc *loopController) emitLoopError(err error) {
+	select {
+	case lc.tuiSend <- loop.LogEntry{Kind: loop.LogError, Message: fmt.Sprintf("Error: %v", err)}:
+	default:
+	}
+	lc.mu.Lock()
+	lc.cancel = nil
+	lc.done = nil
+	lc.mu.Unlock()
 }
 
 // runDashboard launches the TUI in idle (dashboard) state with no loop running.

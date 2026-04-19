@@ -56,6 +56,26 @@ func TestLineFormatter_PlainMode(t *testing.T) {
 			want: "[14:23:01]  claude exited with error",
 		},
 		{
+			name: "agent entry — agent prefix included",
+			entry: loop.LogEntry{
+				Kind:      loop.LogInfo,
+				Timestamp: ts,
+				Agent:     "codex",
+				Message:   "starting iteration 3",
+			},
+			want: "[14:23:01]  [codex] starting iteration 3",
+		},
+		{
+			name: "regent entry — includes agent prefix when present",
+			entry: loop.LogEntry{
+				Kind:      loop.LogRegent,
+				Timestamp: ts,
+				Agent:     "codex",
+				Message:   "retrying",
+			},
+			want: "[14:23:01]  🛡️  Regent: [codex] retrying",
+		},
+		{
 			name: "git push entry — no special prefix",
 			entry: loop.LogEntry{
 				Kind:      loop.LogGitPush,

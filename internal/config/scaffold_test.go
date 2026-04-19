@@ -367,5 +367,11 @@ func TestScaffoldProject(t *testing.T) {
 		if cfg.Claude.Model != "sonnet" {
 			t.Errorf("default model: got %q, want %q", cfg.Claude.Model, "sonnet")
 		}
+		if cfg.Agent.Type != AgentClaude {
+			t.Errorf("default agent.type: got %q, want %q", cfg.Agent.Type, AgentClaude)
+		}
+		if cfg.Codex.Model != "" {
+			t.Errorf("default codex.model: got %q, want empty", cfg.Codex.Model)
+		}
 	})
 }

@@ -20,11 +20,13 @@ type mockAgent struct {
 	err        error
 	calls      int
 	lastPrompt string // captures the prompt passed to the most recent Run() call
+	lastOpts   claude.RunOptions
 }
 
-func (m *mockAgent) Run(_ context.Context, prompt string, _ claude.RunOptions) (<-chan claude.Event, error) {
+func (m *mockAgent) Run(_ context.Context, prompt string, opts claude.RunOptions) (<-chan claude.Event, error) {
 	m.calls++
 	m.lastPrompt = prompt
+	m.lastOpts = opts
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -213,6 +215,46 @@ func TestRun(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "agent failed") {
 			t.Errorf("error should contain agent message, got: %v", err)
+		}
+	})
+
+	t.Run("default claude config is preserved", func(t *testing.T) {
+		agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0.05, 1.0, "success")}}
+		git := &mockGit{branch: "main", lastCommit: "abc123 initial"}
+		cfg := defaultTestConfig()
+		cfg.Plan.MaxIterations = 1
+		cfg.Claude.Model = "opus"
+		cfg.Claude.MaxTurns = 7
+		cfg.Claude.DangerSkipPermissions = true
+
+		lp, buf := setupTestLoop(t, agent, git, cfg)
+		err := lp.Run(context.Background(), ModePlan, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if agent.lastOpts.Model != "opus" || agent.lastOpts.MaxTurns != 7 || !agent.lastOpts.DangerSkipPermissions {
+			t.Fatalf("unexpected claude opts: %+v", agent.lastOpts)
+		}
+		if !strings.Contains(buf.String(), "with claude") {
+			t.Fatalf("expected log output to mention claude, got %q", buf.String())
+		}
+	})
+
+	t.Run("codex config uses codex model and skips claude-only options", func(t *testing.T) {
+		agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0.05, 1.0, "success")}}
+		git := &mockGit{branch: "main", lastCommit: "abc123 initial"}
+		cfg := defaultTestConfig()
+		cfg.Plan.MaxIterations = 1
+		cfg.Codex.Model = "gpt-5-codex"
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		lp.AgentType = config.AgentCodex
+		err := lp.Run(context.Background(), ModePlan, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if agent.lastOpts.Model != "gpt-5-codex" || agent.lastOpts.MaxTurns != 0 || agent.lastOpts.DangerSkipPermissions {
+			t.Fatalf("unexpected codex opts: %+v", agent.lastOpts)
 		}
 	})
 }

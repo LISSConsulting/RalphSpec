@@ -32,6 +32,7 @@ type JSONL struct {
 	pos        int64 // current write position in the file
 	branch     string
 	lastCommit string
+	agent      string
 }
 
 // NewJSONL creates (or reopens) the session JSONL log in dir. dir is created
@@ -90,6 +91,9 @@ func (j *JSONL) Append(entry loop.LogEntry) error {
 	}
 	if entry.Commit != "" {
 		j.lastCommit = entry.Commit
+	}
+	if entry.Agent != "" {
+		j.agent = entry.Agent
 	}
 	return nil
 }
@@ -190,6 +194,7 @@ func (j *JSONL) SessionSummary() (SessionSummary, error) {
 	return SessionSummary{
 		SessionID:  j.sessionID,
 		StartedAt:  j.startedAt,
+		Agent:      j.agent,
 		TotalCost:  total,
 		Iterations: len(j.idx.summaries),
 		LastCommit: j.lastCommit,

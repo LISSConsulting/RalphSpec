@@ -44,6 +44,7 @@ type LogEntry struct {
 	MaxIter   int
 
 	// Git state
+	Agent  string
 	Branch string
 	Commit string
 

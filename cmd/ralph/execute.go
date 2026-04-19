@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LISSConsulting/RalphSpec/internal/claude"
+	"github.com/LISSConsulting/RalphSpec/internal/codex"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/git"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
@@ -34,12 +36,13 @@ type loopSetup struct {
 	sr            store.Reader
 	formatter     lineFormatter
 	cleanup       func() // closes the JSONL store if one was opened
+	agentType     string
 }
 
 // setupLoop performs the common initialisation shared by executeLoop and
 // executeSmartRun: config load, validation, working dir, signal context, git
 // runner, loop struct init, spec resolution, and store init.
-func setupLoop(noTUI, roam, noColor bool) (*loopSetup, error) {
+func setupLoop(noTUI, roam, noColor bool, agentOverride string) (*loopSetup, error) {
 	cfg, err := config.Load("")
 	if err != nil {
 		return nil, err
@@ -64,12 +67,21 @@ func setupLoop(noTUI, roam, noColor bool) (*loopSetup, error) {
 
 	gitRunner := git.NewRunner(dir)
 	effectiveRoam := roam || cfg.Build.Roam
+	agentType, err := resolveAgent(cfg, agentOverride)
+	if err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
+	}
+	agentImpl, err := buildAgent(agentType)
+	if err != nil {
+		return nil, err
+	}
 
 	lp := &loop.Loop{
-		Agent:  loop.NewClaudeAgent(),
-		Git:    gitRunner,
-		Config: cfg,
-		Dir:    dir,
+		Agent:     agentImpl,
+		AgentType: agentType,
+		Git:       gitRunner,
+		Config:    cfg,
+		Dir:       dir,
 	}
 	if stopCh != nil {
 		lp.StopAfter = stopCh
@@ -116,17 +128,22 @@ func setupLoop(noTUI, roam, noColor bool) (*loopSetup, error) {
 		sr:            sr,
 		formatter:     lineFormatter{color: !noColor},
 		cleanup:       cleanup,
+		agentType:     agentType,
 	}, nil
 }
 
 // executeLoop loads config, builds the loop, and runs it in the given mode.
-func executeLoop(mode loop.Mode, maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool) error {
-	setup, err := setupLoop(noTUI, roam, noColor)
+func executeLoop(mode loop.Mode, maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string) error {
+	setup, err := setupLoop(noTUI, roam, noColor, agentOverride)
 	if err != nil {
 		return err
 	}
 	defer setup.cancel()
 	defer setup.cleanup()
+
+	if err := validateAgentFlow(setup.agentType, useWorktree, false); err != nil {
+		return err
+	}
 
 	// Worktree mode: create an isolated worktree and run the loop inside it.
 	if useWorktree {
@@ -233,13 +250,17 @@ func setupWorktree(setup *loopSetup) error {
 }
 
 // executeSmartRun runs plan if CHRONICLE.md doesn't exist, then build.
-func executeSmartRun(maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool) error {
-	setup, err := setupLoop(noTUI, roam, noColor)
+func executeSmartRun(maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string) error {
+	setup, err := setupLoop(noTUI, roam, noColor, agentOverride)
 	if err != nil {
 		return err
 	}
 	defer setup.cancel()
 	defer setup.cleanup()
+
+	if err := validateAgentFlow(setup.agentType, useWorktree, false); err != nil {
+		return err
+	}
 
 	if useWorktree {
 		if wtErr := setupWorktree(setup); wtErr != nil {
@@ -312,6 +333,9 @@ func formatStatus(state regent.State, now time.Time) string {
 	if state.Branch != "" {
 		fmt.Fprintf(&b, "  %-20s %s\n", "Branch:", state.Branch)
 	}
+	if state.Agent != "" {
+		fmt.Fprintf(&b, "  %-20s %s\n", "Agent:", state.Agent)
+	}
 	if state.Mode != "" {
 		fmt.Fprintf(&b, "  %-20s %s\n", "Mode:", state.Mode)
 	}
@@ -346,6 +370,43 @@ func formatStatus(state regent.State, now time.Time) string {
 	}
 
 	return b.String()
+}
+
+func resolveAgent(cfg *config.Config, override string) (string, error) {
+	agentType := cfg.Agent.Type
+	if override != "" {
+		agentType = override
+	}
+	if agentType == "" {
+		agentType = config.AgentClaude
+	}
+	if agentType != config.AgentClaude && agentType != config.AgentCodex {
+		return "", fmt.Errorf("agent.type must be one of %s,%s", config.AgentClaude, config.AgentCodex)
+	}
+	return agentType, nil
+}
+
+func buildAgent(agentType string) (claude.Agent, error) {
+	if agentType == config.AgentCodex {
+		if err := codex.CheckAvailable(""); err != nil {
+			return nil, fmt.Errorf("codex agent unavailable: %w; install or log into Codex CLI, or use --agent claude", err)
+		}
+		return codex.NewAgent(), nil
+	}
+	return loop.NewClaudeAgent(), nil
+}
+
+func validateAgentFlow(agentType string, useWorktree bool, dashboard bool) error {
+	if agentType != config.AgentCodex {
+		return nil
+	}
+	if useWorktree {
+		return fmt.Errorf("codex agent unsupported for worktree mode; use --agent claude or omit --worktree")
+	}
+	if dashboard {
+		return fmt.Errorf("codex agent unsupported for dashboard mode; start Codex with ralph build --agent codex --no-tui or use claude in the dashboard")
+	}
+	return nil
 }
 
 // statusResult represents the outcome classification for ralph status display.

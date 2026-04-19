@@ -37,6 +37,7 @@ type GitOps interface {
 // Loop orchestrates the prompt -> claude -> parse -> git iteration cycle.
 type Loop struct {
 	Agent            claude.Agent
+	AgentType        string
 	Git              GitOps
 	Config           *config.Config
 	Log              io.Writer       // output destination; defaults to os.Stdout
@@ -90,7 +91,8 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 
 	l.emit(LogEntry{
 		Kind:    LogInfo,
-		Message: fmt.Sprintf("Starting %s loop on branch %s (max: %s)", mode, branch, iterLabel(maxIter)),
+		Message: fmt.Sprintf("Starting %s loop with %s on branch %s (max: %s)", mode, l.agentName(), branch, iterLabel(maxIter)),
+		Agent:   l.agentName(),
 		Branch:  branch,
 		Commit:  commit,
 		MaxIter: maxIter,
@@ -105,6 +107,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 			l.emit(LogEntry{
 				Kind:    LogStopped,
 				Message: fmt.Sprintf("Loop stopped: %v", ctx.Err()),
+				Agent:   l.agentName(),
 			})
 			return ctx.Err()
 		default:
@@ -123,12 +126,14 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 				l.emit(LogEntry{
 					Kind:      LogSweepComplete,
 					Message:   fmt.Sprintf("Roam complete (%d iterations, $%.2f)", i, totalCost),
+					Agent:     l.agentName(),
 					TotalCost: totalCost,
 				})
 			} else {
 				l.emit(LogEntry{
 					Kind:      LogSpecComplete,
 					Message:   fmt.Sprintf("Spec complete (%d iterations, $%.2f)", i, totalCost),
+					Agent:     l.agentName(),
 					TotalCost: totalCost,
 				})
 			}
@@ -144,6 +149,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 		l.emit(LogEntry{
 			Kind:      LogInfo,
 			Message:   fmt.Sprintf("Running total: $%.2f", totalCost),
+			Agent:     l.agentName(),
 			TotalCost: totalCost,
 		})
 
@@ -154,6 +160,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 				l.emit(LogEntry{
 					Kind:    LogStopped,
 					Message: "Stop requested — exiting after this iteration",
+					Agent:   l.agentName(),
 				})
 				return nil
 			default:
@@ -164,6 +171,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 	l.emit(LogEntry{
 		Kind:      LogDone,
 		Message:   fmt.Sprintf("Loop complete — %s iterations done, total cost: $%.2f", iterLabel(maxIter), totalCost),
+		Agent:     l.agentName(),
 		TotalCost: totalCost,
 		MaxIter:   maxIter,
 	})
@@ -174,6 +182,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 	l.emit(LogEntry{
 		Kind:      LogIterStart,
 		Message:   fmt.Sprintf("── iteration %d ──", n),
+		Agent:     l.agentName(),
 		Iteration: n,
 		MaxIter:   maxIter,
 		Branch:    branch,
@@ -190,12 +199,14 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		l.emit(LogEntry{
 			Kind:    LogGitPull,
 			Message: fmt.Sprintf("Pulling %s", branch),
+			Agent:   l.agentName(),
 			Branch:  branch,
 		})
 		if pullErr := l.Git.Pull(branch); pullErr != nil {
 			l.emit(LogEntry{
 				Kind:    LogInfo,
 				Message: fmt.Sprintf("Pull failed: %v (continuing)", pullErr),
+				Agent:   l.agentName(),
 			})
 		}
 	}
@@ -206,6 +217,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 			l.emit(LogEntry{
 				Kind:    LogInfo,
 				Message: fmt.Sprintf("Stash pop failed: %v", popErr),
+				Agent:   l.agentName(),
 			})
 		}
 	}
@@ -213,19 +225,20 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 	// Capture HEAD before Claude runs to detect new commits afterward.
 	headBefore, _ := l.Git.LastCommit()
 
-	// Run Claude
+	// Run the selected agent.
 	l.emit(LogEntry{
 		Kind:    LogInfo,
-		Message: "Running Claude...",
+		Agent:   l.agentName(),
+		Message: fmt.Sprintf("Running %s...", l.agentName()),
 	})
 	events, agentErr := l.Agent.Run(ctx, prompt, claude.RunOptions{
-		Model:                 l.Config.Claude.Model,
-		MaxTurns:              l.Config.Claude.MaxTurns,
-		DangerSkipPermissions: l.Config.Claude.DangerSkipPermissions,
+		Model:                 l.agentModel(),
+		MaxTurns:              l.agentMaxTurns(),
+		DangerSkipPermissions: l.agentDangerSkipPermissions(),
 		Dir:                   l.Dir,
 	})
 	if agentErr != nil {
-		return 0, "", false, fmt.Errorf("start claude: %w", agentErr)
+		return 0, "", false, fmt.Errorf("start %s: %w", l.agentName(), agentErr)
 	}
 
 	// Drain events
@@ -235,6 +248,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 			l.emit(LogEntry{
 				Kind:      LogToolUse,
 				Message:   fmt.Sprintf("tool: %s  %s", ev.ToolName, summarizeInput(ev.ToolInput)),
+				Agent:     l.agentName(),
 				ToolName:  ev.ToolName,
 				ToolInput: summarizeInput(ev.ToolInput),
 			})
@@ -242,6 +256,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 			if ev.Text != "" {
 				l.emit(LogEntry{
 					Kind:    LogText,
+					Agent:   l.agentName(),
 					Message: ev.Text,
 				})
 			}
@@ -255,6 +270,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 			l.emit(LogEntry{
 				Kind:      LogIterComplete,
 				Message:   msg,
+				Agent:     l.agentName(),
 				Iteration: n,
 				CostUSD:   ev.CostUSD,
 				Duration:  ev.Duration,
@@ -263,6 +279,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		case claude.EventError:
 			l.emit(LogEntry{
 				Kind:    LogError,
+				Agent:   l.agentName(),
 				Message: fmt.Sprintf("Error: %s", ev.Error),
 			})
 		}
@@ -273,6 +290,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		if pushErr := l.pushIfNeeded(branch); pushErr != nil {
 			l.emit(LogEntry{
 				Kind:    LogError,
+				Agent:   l.agentName(),
 				Message: fmt.Sprintf("Push error: %v", pushErr),
 			})
 		}
@@ -294,6 +312,7 @@ func (l *Loop) stashIfDirty() (bool, error) {
 		l.emit(LogEntry{
 			Kind:    LogInfo,
 			Message: "Stashing uncommitted changes",
+			Agent:   l.agentName(),
 		})
 		if stashErr := l.Git.Stash(); stashErr != nil {
 			return false, fmt.Errorf("stash: %w", stashErr)
@@ -311,6 +330,7 @@ func (l *Loop) pushIfNeeded(branch string) error {
 		l.emit(LogEntry{
 			Kind:    LogInfo,
 			Message: fmt.Sprintf("Diff check failed: %v (pushing anyway)", err),
+			Agent:   l.agentName(),
 		})
 	}
 	if err == nil && !hasChanges {
@@ -319,6 +339,7 @@ func (l *Loop) pushIfNeeded(branch string) error {
 	l.emit(LogEntry{
 		Kind:    LogGitPush,
 		Message: fmt.Sprintf("Pushing %s", branch),
+		Agent:   l.agentName(),
 		Branch:  branch,
 	})
 	if pushErr := l.Git.Push(branch); pushErr != nil {
@@ -331,6 +352,7 @@ func (l *Loop) pushIfNeeded(branch string) error {
 	l.emit(LogEntry{
 		Kind:    LogGitPush,
 		Message: fmt.Sprintf("Pushed — last commit: %s", commit),
+		Agent:   l.agentName(),
 		Commit:  commit,
 		Branch:  branch,
 	})
@@ -378,6 +400,34 @@ func iterLabel(max int) string {
 		return "unlimited"
 	}
 	return fmt.Sprintf("%d", max)
+}
+
+func (l *Loop) agentName() string {
+	if l.AgentType != "" {
+		return l.AgentType
+	}
+	return config.AgentClaude
+}
+
+func (l *Loop) agentModel() string {
+	if l.agentName() == config.AgentCodex {
+		return l.Config.Codex.Model
+	}
+	return l.Config.Claude.Model
+}
+
+func (l *Loop) agentMaxTurns() int {
+	if l.agentName() == config.AgentCodex {
+		return 0
+	}
+	return l.Config.Claude.MaxTurns
+}
+
+func (l *Loop) agentDangerSkipPermissions() bool {
+	if l.agentName() == config.AgentCodex {
+		return false
+	}
+	return l.Config.Claude.DangerSkipPermissions
 }
 
 // augmentPrompt appends a ## Spec Context section to the prompt when applicable.

@@ -43,6 +43,7 @@ type Model struct {
 	loopState  LoopState
 	iteration  int
 	maxIter    int
+	agent      string
 	mode       string
 	branch     string
 	totalCost  float64
@@ -407,6 +408,9 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 	if entry.Mode != "" {
 		m.mode = entry.Mode
 	}
+	if entry.Agent != "" {
+		m.agent = entry.Agent
+	}
 	if entry.MaxIter > 0 {
 		m.maxIter = entry.MaxIter
 	}
@@ -439,6 +443,7 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 		m.totalCost += entry.CostUSD
 		summary := store.IterationSummary{
 			Number:   entry.Iteration,
+			Agent:    entry.Agent,
 			Mode:     entry.Mode,
 			CostUSD:  entry.CostUSD,
 			Duration: entry.Duration,
@@ -731,6 +736,7 @@ func (m Model) View() string {
 		ProjectName: m.projectName,
 		WorkDir:     m.workDir,
 		Branch:      m.branch,
+		Agent:       m.agent,
 		Mode:        m.mode,
 		Iteration:   m.iteration,
 		MaxIter:     m.maxIter,

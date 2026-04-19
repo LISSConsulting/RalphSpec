@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,20 @@ func defaultTestRegentConfig() config.RegentConfig {
 		RetryBackoffSeconds:   0, // no delay in tests
 		HangTimeoutSeconds:    0, // disabled in most tests
 	}
+}
+
+func passingCommand() string {
+	if runtime.GOOS == "windows" {
+		return "cmd /c exit 0"
+	}
+	return "true"
+}
+
+func failingCommand() string {
+	if runtime.GOOS == "windows" {
+		return "cmd /c exit 1"
+	}
+	return "false"
 }
 
 func TestSupervise(t *testing.T) {
@@ -569,7 +584,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		dir := t.TempDir()
 		cfg := defaultTestRegentConfig()
 		cfg.RollbackOnTestFailure = true
-		cfg.TestCommand = "true"
+		cfg.TestCommand = passingCommand()
 		events := make(chan loop.LogEntry, 128)
 		g := &mockGit{branch: "main", lastCommit: "abc good commit"}
 		rgt := New(cfg, dir, g, events)
@@ -589,7 +604,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		dir := t.TempDir()
 		cfg := defaultTestRegentConfig()
 		cfg.RollbackOnTestFailure = true
-		cfg.TestCommand = "false"
+		cfg.TestCommand = failingCommand()
 		events := make(chan loop.LogEntry, 128)
 		g := &mockGit{branch: "main", lastCommit: "abc1234 bad commit"}
 		rgt := New(cfg, dir, g, events)
@@ -615,7 +630,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		dir := t.TempDir()
 		cfg := defaultTestRegentConfig()
 		cfg.RollbackOnTestFailure = true
-		cfg.TestCommand = "true"
+		cfg.TestCommand = passingCommand()
 		events := make(chan loop.LogEntry, 128)
 		g := &mockGit{branch: "main", lastCommit: "abc commit"}
 		rgt := New(cfg, dir, g, events)
@@ -649,7 +664,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		dir := t.TempDir()
 		cfg := defaultTestRegentConfig()
 		cfg.RollbackOnTestFailure = true
-		cfg.TestCommand = "false" // tests fail → triggers revert
+		cfg.TestCommand = failingCommand() // tests fail → triggers revert
 		events := make(chan loop.LogEntry, 128)
 		g := &mockGit{
 			branch:     "main",

@@ -317,6 +317,44 @@ func TestLoopCmdsHaveMaxFlag(t *testing.T) {
 	}
 }
 
+func TestLoopCmdsHaveAgentFlag(t *testing.T) {
+	root := rootCmd()
+
+	var loopCmd *cobra.Command
+	for _, sub := range root.Commands() {
+		if sub.Name() == "loop" {
+			loopCmd = sub
+			break
+		}
+	}
+	if loopCmd == nil {
+		t.Fatal("missing loop subcommand")
+	}
+
+	for _, name := range []string{"plan", "build", "run"} {
+		t.Run(name, func(t *testing.T) {
+			for _, sub := range loopCmd.Commands() {
+				if sub.Name() == name {
+					if sub.Flags().Lookup("agent") == nil {
+						t.Errorf("loop %s: missing --agent flag", name)
+					}
+					return
+				}
+			}
+			t.Fatalf("loop subcommand %q not found", name)
+		})
+	}
+
+	for _, sub := range root.Commands() {
+		if sub.Name() == "build" {
+			if sub.Flags().Lookup("agent") == nil {
+				t.Error("top-level build: missing --agent flag")
+			}
+			return
+		}
+	}
+}
+
 func TestSpecCmdSubcommands(t *testing.T) {
 	root := rootCmd()
 

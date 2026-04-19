@@ -19,6 +19,7 @@ func TestSaveAndLoadState(t *testing.T) {
 		Iteration:       7,
 		ConsecutiveErrs: 0,
 		LastOutputAt:    now,
+		Agent:           "codex",
 		LastCommit:      "abc1234",
 		TotalCostUSD:    1.42,
 		Branch:          "feat/test-branch",
@@ -51,6 +52,9 @@ func TestSaveAndLoadState(t *testing.T) {
 	}
 	if loaded.LastCommit != original.LastCommit {
 		t.Errorf("LastCommit = %q, want %q", loaded.LastCommit, original.LastCommit)
+	}
+	if loaded.Agent != original.Agent {
+		t.Errorf("Agent = %q, want %q", loaded.Agent, original.Agent)
 	}
 	if loaded.TotalCostUSD != original.TotalCostUSD {
 		t.Errorf("TotalCostUSD = %f, want %f", loaded.TotalCostUSD, original.TotalCostUSD)

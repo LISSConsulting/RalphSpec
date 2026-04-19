@@ -4,10 +4,16 @@
 [project]
 name = "RalphSpec"
 
+[agent]
+type = "claude"
+
 [claude]
 model = "sonnet"
 max_turns = 0  # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
+
+[codex]
+model = ""
 
 [plan]
 prompt_file = "PLAN.md"

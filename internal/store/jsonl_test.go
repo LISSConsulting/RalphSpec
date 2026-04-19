@@ -59,7 +59,7 @@ func TestAppendAndIterationLog(t *testing.T) {
 
 	now := time.Now()
 	entries := []loop.LogEntry{
-		{Kind: loop.LogIterStart, Timestamp: now, Iteration: 1, Mode: "build", Branch: "main"},
+		{Kind: loop.LogIterStart, Timestamp: now, Iteration: 1, Agent: "codex", Mode: "build", Branch: "main"},
 		{Kind: loop.LogToolUse, Timestamp: now, Iteration: 1, ToolName: "Read", ToolInput: "main.go"},
 		{Kind: loop.LogIterComplete, Timestamp: now, Iteration: 1, CostUSD: 0.05, Duration: 1.2, Subtype: "success"},
 	}
@@ -104,7 +104,7 @@ func TestIterations(t *testing.T) {
 	now := time.Now()
 	for i := 1; i <= 3; i++ {
 		_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: i, Mode: "build", Branch: "main", Timestamp: now})
-		_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: i, CostUSD: float64(i) * 0.01, Duration: float64(i), Subtype: "success", Timestamp: now})
+		_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: i, Agent: "claude", CostUSD: float64(i) * 0.01, Duration: float64(i), Subtype: "success", Timestamp: now})
 	}
 
 	iters, err := s.Iterations()
@@ -121,6 +121,9 @@ func TestIterations(t *testing.T) {
 		}
 		if it.Mode != "build" {
 			t.Errorf("iters[%d].Mode: expected build, got %q", i, it.Mode)
+		}
+		if it.Agent != "claude" {
+			t.Errorf("iters[%d].Agent: expected claude, got %q", i, it.Agent)
 		}
 		wantCost := float64(wantNum) * 0.01
 		if it.CostUSD != wantCost {
@@ -162,10 +165,10 @@ func TestSessionSummary(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	now := time.Now()
-	_ = s.Append(loop.LogEntry{Kind: loop.LogInfo, Branch: "feat/test", Commit: "abc123", Timestamp: now})
-	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 1, Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogInfo, Agent: "codex", Branch: "feat/test", Commit: "abc123", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 1, Agent: "codex", Timestamp: now})
 	_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: 1, CostUSD: 1.0, Timestamp: now})
-	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 2, Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 2, Agent: "codex", Timestamp: now})
 	_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: 2, CostUSD: 2.0, Timestamp: now})
 
 	sum, err := s.SessionSummary()
@@ -180,6 +183,9 @@ func TestSessionSummary(t *testing.T) {
 	}
 	if sum.Branch != "feat/test" {
 		t.Errorf("Branch: expected %q, got %q", "feat/test", sum.Branch)
+	}
+	if sum.Agent != "codex" {
+		t.Errorf("Agent: expected %q, got %q", "codex", sum.Agent)
 	}
 	if sum.LastCommit != "abc123" {
 		t.Errorf("LastCommit: expected %q, got %q", "abc123", sum.LastCommit)

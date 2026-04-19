@@ -12,11 +12,11 @@ import (
 	"github.com/LISSConsulting/RalphSpec/internal/spec"
 )
 
-// loopCmd returns the parent command for autonomous Claude loop commands.
+// loopCmd returns the parent command for autonomous agent loop commands.
 func loopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "loop",
-		Short: "Autonomous Claude loop commands",
+		Short: "Autonomous agent loop commands",
 	}
 	cmd.AddCommand(loopPlanCmd(), loopBuildCmd(), loopRunCmd())
 	return cmd
@@ -25,16 +25,18 @@ func loopCmd() *cobra.Command {
 func loopPlanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plan",
-		Short: "Run Claude in plan mode",
+		Short: "Run an agent in plan mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
+			agent, _ := cmd.Flags().GetString("agent")
 			noTUI, _ := cmd.Root().PersistentFlags().GetBool("no-tui")
 			noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeLoop(loop.ModePlan, max, noTUI, false, "", noColor, worktreeFlag)
+			return executeLoop(loop.ModePlan, max, noTUI, false, "", noColor, worktreeFlag, agent)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
 	return cmd
 }
@@ -42,18 +44,20 @@ func loopPlanCmd() *cobra.Command {
 func loopBuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Run Claude in build mode",
+		Short: "Run an agent in build mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
+			agent, _ := cmd.Flags().GetString("agent")
 			noTUI, _ := cmd.Root().PersistentFlags().GetBool("no-tui")
 			noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
 			roam, _ := cmd.Flags().GetBool("roam")
 			focus, _ := cmd.Flags().GetString("focus")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeLoop(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag)
+			return executeLoop(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag, agent)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
@@ -66,15 +70,17 @@ func loopRunCmd() *cobra.Command {
 		Short: "Smart mode: plan if needed, then build",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
+			agent, _ := cmd.Flags().GetString("agent")
 			noTUI, _ := cmd.Root().PersistentFlags().GetBool("no-tui")
 			noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
 			roam, _ := cmd.Flags().GetBool("roam")
 			focus, _ := cmd.Flags().GetString("focus")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeSmartRun(max, noTUI, roam, focus, noColor, worktreeFlag)
+			return executeSmartRun(max, noTUI, roam, focus, noColor, worktreeFlag, agent)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
@@ -85,18 +91,20 @@ func loopRunCmd() *cobra.Command {
 func buildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Run Claude in build mode",
+		Short: "Run an agent in build mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
+			agent, _ := cmd.Flags().GetString("agent")
 			noTUI, _ := cmd.Root().PersistentFlags().GetBool("no-tui")
 			noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
 			roam, _ := cmd.Flags().GetBool("roam")
 			focus, _ := cmd.Flags().GetString("focus")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeLoop(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag)
+			return executeLoop(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag, agent)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")

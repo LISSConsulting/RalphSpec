@@ -38,6 +38,9 @@ func TestEmitToChannel(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("expected events to be sent to channel")
 	}
+	if entries[0].Agent != config.AgentClaude {
+		t.Errorf("expected first event agent %q, got %q", config.AgentClaude, entries[0].Agent)
+	}
 
 	// Verify we got a mix of event types
 	kinds := map[LogKind]bool{}
@@ -263,5 +266,8 @@ func TestEmitBranchAndIterationInEvents(t *testing.T) {
 	}
 	if iterStart.Iteration != 1 {
 		t.Errorf("expected iteration 1, got %d", iterStart.Iteration)
+	}
+	if iterStart.Agent != config.AgentClaude {
+		t.Errorf("expected agent %q, got %q", config.AgentClaude, iterStart.Agent)
 	}
 }

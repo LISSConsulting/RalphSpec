@@ -39,6 +39,7 @@ func (idx *fileIndex) onAppend(entry loop.LogEntry, lineOffset, lineLen int64) {
 			startOffset: lineOffset,
 			summary: IterationSummary{
 				Number:  entry.Iteration,
+				Agent:   entry.Agent,
 				Mode:    entry.Mode,
 				StartAt: entry.Timestamp,
 				Commit:  entry.Commit,
@@ -53,6 +54,9 @@ func (idx *fileIndex) onAppend(entry loop.LogEntry, lineOffset, lineLen int64) {
 		s.Duration = entry.Duration
 		s.Subtype = entry.Subtype
 		s.EndAt = entry.Timestamp
+		if entry.Agent != "" {
+			s.Agent = entry.Agent
+		}
 		if entry.Commit != "" {
 			s.Commit = entry.Commit
 		}

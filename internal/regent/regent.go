@@ -183,6 +183,10 @@ func (r *Regent) UpdateState(entry loop.LogEntry) {
 		r.state.LastCommit = entry.Commit
 		changed = true
 	}
+	if entry.Agent != "" {
+		r.state.Agent = entry.Agent
+		changed = true
+	}
 	if entry.Branch != "" {
 		r.state.Branch = entry.Branch
 		changed = true
@@ -255,6 +259,7 @@ func (r *Regent) emit(msg string) {
 		Kind:      loop.LogRegent,
 		Timestamp: time.Now(),
 		Message:   msg,
+		Agent:     r.state.Agent,
 	}
 	// Sending to a closed channel panics in Go even in a non-blocking select.
 	// This can happen when saveState is called from the runWithRegent drain goroutine

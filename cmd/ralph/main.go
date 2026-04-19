@@ -35,7 +35,7 @@ func rootCmd() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if os.Getenv("ANTHROPIC_API_KEY") != "" {
 				noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
-				msg := "WARNING: ANTHROPIC_API_KEY is set. Claude may use direct API billing\n" +
+				msg := "WARNING: ANTHROPIC_API_KEY is set. Claude-based runs may use direct API billing\n" +
 					"instead of your subscription. Unset it to avoid unexpected charges."
 				if noColor {
 					fmt.Fprintln(os.Stderr, msg)

@@ -36,13 +36,16 @@ func TestNewStateTracker(t *testing.T) {
 	initGitRepo(t, dir)
 
 	runner := git.NewRunner(dir)
-	st := newStateTracker(dir, "build", runner)
+	st := newStateTracker(dir, "build", "", runner)
 
 	if st.state.RalphPID == 0 {
 		t.Error("expected non-zero PID")
 	}
 	if st.state.Mode != "build" {
 		t.Errorf("Mode = %q, want %q", st.state.Mode, "build")
+	}
+	if st.state.Agent != "" {
+		t.Errorf("Agent = %q, want empty", st.state.Agent)
 	}
 	if st.state.Branch == "" {
 		t.Error("expected non-empty branch")
@@ -59,11 +62,12 @@ func TestStateTrackerTrackEntry(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	runner := git.NewRunner(dir)
-	st := newStateTracker(dir, "plan", runner)
+	st := newStateTracker(dir, "plan", "", runner)
 
 	st.trackEntry(loop.LogEntry{
 		Iteration: 3,
 		TotalCost: 1.50,
+		Agent:     "codex",
 		Commit:    "abc1234 feat: add stuff",
 		Branch:    "feat/test",
 		Mode:      "build",
@@ -74,6 +78,9 @@ func TestStateTrackerTrackEntry(t *testing.T) {
 	}
 	if st.state.TotalCostUSD != 1.50 {
 		t.Errorf("TotalCostUSD = %f, want 1.50", st.state.TotalCostUSD)
+	}
+	if st.state.Agent != "codex" {
+		t.Errorf("Agent = %q, want %q", st.state.Agent, "codex")
 	}
 	if st.state.LastCommit != "abc1234 feat: add stuff" {
 		t.Errorf("LastCommit = %q, want %q", st.state.LastCommit, "abc1234 feat: add stuff")
@@ -90,7 +97,7 @@ func TestStateTrackerZeroValuesPreserved(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	runner := git.NewRunner(dir)
-	st := newStateTracker(dir, "build", runner)
+	st := newStateTracker(dir, "build", "", runner)
 
 	st.trackEntry(loop.LogEntry{Iteration: 5, Branch: "main"})
 	st.trackEntry(loop.LogEntry{Message: "just info"})
@@ -107,7 +114,7 @@ func TestStateTrackerSave(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	runner := git.NewRunner(dir)
-	st := newStateTracker(dir, "build", runner)
+	st := newStateTracker(dir, "build", "", runner)
 
 	st.trackEntry(loop.LogEntry{Iteration: 2, TotalCost: 0.75})
 	st.save()
@@ -128,11 +135,11 @@ func TestStateTrackerLivePersistence(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	runner := git.NewRunner(dir)
-	st := newStateTracker(dir, "build", runner)
+	st := newStateTracker(dir, "build", "", runner)
 	st.save()
 
 	// trackEntry with meaningful fields auto-saves to disk
-	st.trackEntry(loop.LogEntry{Iteration: 3, TotalCost: 1.25, Branch: "feat/live"})
+	st.trackEntry(loop.LogEntry{Iteration: 3, TotalCost: 1.25, Agent: "codex", Branch: "feat/live"})
 
 	state, err := regent.LoadState(dir)
 	if err != nil {
@@ -146,6 +153,9 @@ func TestStateTrackerLivePersistence(t *testing.T) {
 	}
 	if state.Branch != "feat/live" {
 		t.Errorf("live Branch = %q, want %q", state.Branch, "feat/live")
+	}
+	if state.Agent != "codex" {
+		t.Errorf("live Agent = %q, want %q", state.Agent, "codex")
 	}
 
 	// trackEntry with no meaningful changes does not overwrite disk state
@@ -165,7 +175,7 @@ func TestStateTrackerFinish(t *testing.T) {
 		dir := t.TempDir()
 		initGitRepo(t, dir)
 		runner := git.NewRunner(dir)
-		st := newStateTracker(dir, "build", runner)
+		st := newStateTracker(dir, "build", "", runner)
 
 		st.finish(nil)
 
@@ -185,7 +195,7 @@ func TestStateTrackerFinish(t *testing.T) {
 		dir := t.TempDir()
 		initGitRepo(t, dir)
 		runner := git.NewRunner(dir)
-		st := newStateTracker(dir, "build", runner)
+		st := newStateTracker(dir, "build", "", runner)
 
 		st.finish(context.Canceled)
 
@@ -202,7 +212,7 @@ func TestStateTrackerFinish(t *testing.T) {
 		dir := t.TempDir()
 		initGitRepo(t, dir)
 		runner := git.NewRunner(dir)
-		st := newStateTracker(dir, "build", runner)
+		st := newStateTracker(dir, "build", "", runner)
 
 		st.finish(errors.New("something broke"))
 
@@ -220,7 +230,7 @@ func TestStateTrackerLastOutputAt(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	runner := git.NewRunner(dir)
-	st := newStateTracker(dir, "build", runner)
+	st := newStateTracker(dir, "build", "", runner)
 
 	before := time.Now()
 	time.Sleep(10 * time.Millisecond)
@@ -686,6 +696,34 @@ func TestLoopController_StartLoop_ForwardGoroutine(t *testing.T) {
 
 	ctrl.StartLoop("plan")
 	waitForIdle(t, ctrl)
+}
+
+func TestLoopController_StartLoop_CodexDashboardUnsupported(t *testing.T) {
+	tuiSend := make(chan loop.LogEntry, 8)
+	cfg := config.Defaults()
+	cfg.Agent.Type = config.AgentCodex
+
+	ctrl := &loopController{
+		cfg:      &cfg,
+		dir:      t.TempDir(),
+		tuiSend:  tuiSend,
+		outerCtx: context.Background(),
+	}
+
+	ctrl.StartLoop("plan")
+	waitForIdle(t, ctrl)
+
+	close(tuiSend)
+	var found bool
+	for entry := range tuiSend {
+		if entry.Kind == loop.LogError && strings.Contains(entry.Message, "codex agent unsupported for dashboard mode") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected dashboard-mode codex error event")
+	}
 }
 
 // --- Tests for finishTUI ---

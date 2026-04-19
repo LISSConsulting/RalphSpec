@@ -32,13 +32,23 @@ ralph loop run --agent codex --no-tui
 Expected behavior:
 - Ralph resolves `codex` as the effective agent
 - Startup validates Codex availability before the first iteration
-- Live output and stored session metadata identify Codex as the active agent
+- Plain live output includes a `[codex]` prefix on loop events
+- Stored session metadata identifies Codex as the active agent
 
 ## 4. Verify persisted metadata
 
 - Inspect `.ralph/regent-state.json` for the recorded agent
 - Inspect the latest JSONL session log in `.ralph/logs/`
 - Confirm `ralph status` or TUI status surfaces the selected agent
+
+Example status excerpt:
+
+```text
+Ralph Status
+  Agent:               codex
+  Branch:              test-branch
+  Mode:                build
+```
 
 ## 5. Verify unsupported scope is rejected cleanly
 
@@ -49,3 +59,10 @@ ralph build --worktree --agent codex
 Expected behavior:
 - Ralph exits before starting work
 - The error explains that Codex worktree support is not part of the initial release
+- The error suggests using `--agent claude` or omitting `--worktree`
+
+Example error:
+
+```text
+codex agent unsupported for worktree mode; use --agent claude or omit --worktree
+```

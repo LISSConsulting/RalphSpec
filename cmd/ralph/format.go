@@ -25,8 +25,12 @@ func (f lineFormatter) format(entry loop.LogEntry) string {
 		return tui.RenderLogLine(entry, 200, tui.NewTheme(""))
 	}
 	ts := entry.Timestamp.Format("15:04:05")
-	if entry.Kind == loop.LogRegent {
-		return fmt.Sprintf("[%s]  🛡️  Regent: %s", ts, entry.Message)
+	agentPrefix := ""
+	if entry.Agent != "" {
+		agentPrefix = fmt.Sprintf("[%s] ", entry.Agent)
 	}
-	return fmt.Sprintf("[%s]  %s", ts, entry.Message)
+	if entry.Kind == loop.LogRegent {
+		return fmt.Sprintf("[%s]  🛡️  Regent: %s%s", ts, agentPrefix, entry.Message)
+	}
+	return fmt.Sprintf("[%s]  %s%s", ts, agentPrefix, entry.Message)
 }

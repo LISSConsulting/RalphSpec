@@ -22,7 +22,9 @@ var hexColorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 // Config is the top-level ralph.toml configuration.
 type Config struct {
 	Project       ProjectConfig       `toml:"project"`
+	Agent         AgentConfig         `toml:"agent"`
 	Claude        ClaudeConfig        `toml:"claude"`
+	Codex         CodexConfig         `toml:"codex"`
 	Plan          PlanConfig          `toml:"plan"`
 	Build         BuildConfig         `toml:"build"`
 	Git           GitConfig           `toml:"git"`
@@ -30,6 +32,16 @@ type Config struct {
 	TUI           TUIConfig           `toml:"tui"`
 	Notifications NotificationsConfig `toml:"notifications"`
 	Worktree      WorktreeConfig      `toml:"worktree"`
+}
+
+const (
+	AgentClaude = "claude"
+	AgentCodex  = "codex"
+)
+
+// AgentConfig controls which agent Ralph should use by default.
+type AgentConfig struct {
+	Type string `toml:"type"`
 }
 
 // WorktreeConfig controls git worktree support via worktrunk.
@@ -81,6 +93,11 @@ type ClaudeConfig struct {
 	DangerSkipPermissions bool   `toml:"danger_skip_permissions"`
 }
 
+// CodexConfig controls the Codex CLI invocation.
+type CodexConfig struct {
+	Model string `toml:"model"`
+}
+
 // PlanConfig controls the plan loop.
 type PlanConfig struct {
 	PromptFile    string `toml:"prompt_file"`
@@ -118,6 +135,9 @@ func (c *Config) Validate() error {
 
 	if c.Plan.PromptFile == "" {
 		errs = append(errs, fmt.Errorf("plan.prompt_file must not be empty"))
+	}
+	if c.Agent.Type != "" && c.Agent.Type != AgentClaude && c.Agent.Type != AgentCodex {
+		errs = append(errs, fmt.Errorf("agent.type must be one of %s,%s", AgentClaude, AgentCodex))
 	}
 	if c.Build.PromptFile == "" {
 		errs = append(errs, fmt.Errorf("build.prompt_file must not be empty"))
@@ -174,10 +194,12 @@ func (c *Config) Validate() error {
 func Defaults() Config {
 	return Config{
 		Project: ProjectConfig{Name: ""},
+		Agent:   AgentConfig{Type: AgentClaude},
 		Claude: ClaudeConfig{
 			Model:                 "sonnet",
 			DangerSkipPermissions: true,
 		},
+		Codex: CodexConfig{},
 		Plan: PlanConfig{
 			PromptFile:    "PLAN.md",
 			MaxIterations: 3,
@@ -290,10 +312,16 @@ func InitFile(dir string) (string, error) {
 [project]
 name = ""
 
+[agent]
+type = "claude"
+
 [claude]
 model = "sonnet"
 max_turns = 0  # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
+
+[codex]
+model = ""
 
 [plan]
 prompt_file = "PLAN.md"

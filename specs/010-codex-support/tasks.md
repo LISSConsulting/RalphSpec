@@ -19,10 +19,10 @@
 
 **Purpose**: Establish config surfaces and Codex package scaffolding used by all stories.
 
-- [ ] T001 Add `AgentConfig` and `CodexConfig` plus defaults and validation rules to `internal/config/config.go`
-- [ ] T002 [P] Update generated config scaffolding for `[agent]` and `[codex]` in `internal/config/scaffold.go` and `ralph.toml`
-- [ ] T003 [P] Add table-driven config and scaffold coverage for agent settings in `internal/config/config_test.go` and `internal/config/scaffold_test.go`
-- [ ] T004 Create Codex adapter package skeleton in `internal/codex/agent.go`, `internal/codex/parser.go`, and `internal/codex/parser_test.go`
+- [X] T001 Add `AgentConfig` and `CodexConfig` plus defaults and validation rules to `internal/config/config.go`
+- [X] T002 [P] Update generated config scaffolding for `[agent]` and `[codex]` in `internal/config/scaffold.go` and `ralph.toml`
+- [X] T003 [P] Add table-driven config and scaffold coverage for agent settings in `internal/config/config_test.go` and `internal/config/scaffold_test.go`
+- [X] T004 Create Codex adapter package skeleton in `internal/codex/agent.go`, `internal/codex/parser.go`, and `internal/codex/parser_test.go`
 
 **Checkpoint**: Config and package scaffolding exist; all user stories can build on the same selection and adapter surfaces.
 
@@ -34,11 +34,11 @@
 
 **⚠️ CRITICAL**: No user story work should begin until this phase is complete.
 
-- [ ] T005 Add `Agent` metadata to `internal/loop/event.go`, `internal/store/store.go`, and `internal/regent/state.go`
-- [ ] T006 [P] Add metadata round-trip coverage in `internal/store/jsonl_test.go` and `internal/regent/state_test.go`
-- [ ] T007 Implement effective-agent resolution and shared unsupported-flow guards in `cmd/ralph/execute.go`
-- [ ] T008 [P] Add `--agent` flag plumbing to supported commands in `cmd/ralph/commands.go` and registration coverage in `cmd/ralph/commands_test.go`
-- [ ] T009 [P] Make startup and loop messaging agent-agnostic in `internal/loop/loop.go` and `cmd/ralph/main.go`
+- [X] T005 Add `Agent` metadata to `internal/loop/event.go`, `internal/store/store.go`, and `internal/regent/state.go`
+- [X] T006 [P] Add metadata round-trip coverage in `internal/store/jsonl_test.go` and `internal/regent/state_test.go`
+- [X] T007 Implement effective-agent resolution and shared unsupported-flow guards in `cmd/ralph/execute.go`
+- [X] T008 [P] Add `--agent` flag plumbing to supported commands in `cmd/ralph/commands.go` and registration coverage in `cmd/ralph/commands_test.go`
+- [X] T009 [P] Make startup and loop messaging agent-agnostic in `internal/loop/loop.go` and `cmd/ralph/main.go`
 
 **Checkpoint**: Effective-agent selection, metadata fields, and command surfaces are in place for all stories.
 
@@ -54,15 +54,15 @@
 
 > Write these tests first. They must fail before implementation.
 
-- [ ] T010 [P] [US1] Write Codex subprocess and parser tests in `internal/codex/agent_test.go` and `internal/codex/parser_test.go`
-- [ ] T011 [P] [US1] Write supported-flow execution tests for Codex in `cmd/ralph/execute_test.go`
+- [X] T010 [P] [US1] Write Codex subprocess and parser tests in `internal/codex/agent_test.go` and `internal/codex/parser_test.go`
+- [X] T011 [P] [US1] Write supported-flow execution tests for Codex in `cmd/ralph/execute_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement Codex JSONL event translation in `internal/codex/parser.go`
-- [ ] T013 [US1] Implement the `codex exec --json --full-auto --cd` runner in `internal/codex/agent.go`
-- [ ] T014 [US1] Wire the Codex adapter into supported single-run paths in `cmd/ralph/execute.go`
-- [ ] T015 [US1] Emit effective-agent metadata in live loop output from `internal/loop/loop.go` and `cmd/ralph/format.go`
+- [X] T012 [US1] Implement Codex JSONL event translation in `internal/codex/parser.go`
+- [X] T013 [US1] Implement the `codex exec --json --full-auto --cd` runner in `internal/codex/agent.go`
+- [X] T014 [US1] Wire the Codex adapter into supported single-run paths in `cmd/ralph/execute.go`
+- [X] T015 [US1] Emit effective-agent metadata in live loop output from `internal/loop/loop.go` and `cmd/ralph/format.go`
 
 **Checkpoint**: Codex can drive Ralph's main single-run plan/build workflows end to end. MVP complete.
 
@@ -76,14 +76,14 @@
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Write project-default and flag-precedence tests in `internal/config/config_test.go` and `cmd/ralph/execute_test.go`
-- [ ] T017 [P] [US2] Write visibility and persisted-state tests in `internal/store/jsonl_test.go`, `internal/regent/state_test.go`, and `internal/tui/app_test.go`
+- [X] T016 [P] [US2] Write project-default and flag-precedence tests in `internal/config/config_test.go` and `cmd/ralph/execute_test.go`
+- [X] T017 [P] [US2] Write visibility and persisted-state tests in `internal/store/jsonl_test.go`, `internal/regent/state_test.go`, and `internal/tui/app_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T018 [P] [US2] Implement project-default and per-run precedence handling in `internal/config/config.go` and `cmd/ralph/execute.go`
-- [ ] T019 [P] [US2] Persist effective-agent identity in `internal/store/jsonl.go` and `internal/regent/state.go`
-- [ ] T020 [US2] Surface the selected agent in user-visible status output in `cmd/ralph/execute.go`, `internal/tui/app.go`, and `internal/tui/panels/header.go`
+- [X] T018 [P] [US2] Implement project-default and per-run precedence handling in `internal/config/config.go` and `cmd/ralph/execute.go`
+- [X] T019 [P] [US2] Persist effective-agent identity in `internal/store/jsonl.go` and `internal/regent/state.go`
+- [X] T020 [US2] Surface the selected agent in user-visible status output in `cmd/ralph/execute.go`, `internal/tui/app.go`, and `internal/tui/panels/header.go`
 
 **Checkpoint**: Agent choice is durable, overrideable, and visible in both live and recorded run context.
 
@@ -97,14 +97,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T021 [P] [US3] Write unavailable-binary and unsupported-workflow tests in `cmd/ralph/execute_test.go` and `cmd/ralph/wiring_test.go`
-- [ ] T022 [P] [US3] Write Codex startup failure coverage in `internal/codex/agent_test.go`
+- [X] T021 [P] [US3] Write unavailable-binary and unsupported-workflow tests in `cmd/ralph/execute_test.go` and `cmd/ralph/wiring_test.go`
+- [X] T022 [P] [US3] Write Codex startup failure coverage in `internal/codex/agent_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T023 [P] [US3] Validate Codex executable availability and startup failure handling in `internal/codex/agent.go`
-- [ ] T024 [P] [US3] Reject Codex for worktree and dashboard/orchestrator flows in `cmd/ralph/execute.go` and `cmd/ralph/wiring.go`
-- [ ] T025 [US3] Return actionable agent-selection and startup errors in `cmd/ralph/commands.go`, `cmd/ralph/main.go`, and `cmd/ralph/execute.go`
+- [X] T023 [P] [US3] Validate Codex executable availability and startup failure handling in `internal/codex/agent.go`
+- [X] T024 [P] [US3] Reject Codex for worktree and dashboard/orchestrator flows in `cmd/ralph/execute.go` and `cmd/ralph/wiring.go`
+- [X] T025 [US3] Return actionable agent-selection and startup errors in `cmd/ralph/commands.go`, `cmd/ralph/main.go`, and `cmd/ralph/execute.go`
 
 **Checkpoint**: Misconfiguration and unsupported scope errors are clear, early, and safe.
 
@@ -114,10 +114,10 @@
 
 **Purpose**: Documentation, regression coverage, and final validation across all stories.
 
-- [ ] T026 [P] Update Codex setup and selection docs in `README.md` and `ralph.toml`
-- [ ] T027 [P] Validate example flows and expected results in `specs/010-codex-support/quickstart.md` and `specs/010-codex-support/contracts/cli-agent-selection.md`
-- [ ] T028 [P] Add regression coverage for unchanged Claude-default behavior in `cmd/ralph/execute_test.go` and `internal/loop/loop_test.go`
-- [ ] T029 Run final validation with `go test ./...` and `go vet ./...` from the repository root
+- [X] T026 [P] Update Codex setup and selection docs in `README.md` and `ralph.toml`
+- [X] T027 [P] Validate example flows and expected results in `specs/010-codex-support/quickstart.md` and `specs/010-codex-support/contracts/cli-agent-selection.md`
+- [X] T028 [P] Add regression coverage for unchanged Claude-default behavior in `cmd/ralph/execute_test.go` and `internal/loop/loop_test.go`
+- [X] T029 Run final validation with `go test ./...` and `go vet ./...` from the repository root
 
 ---
 

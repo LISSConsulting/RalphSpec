@@ -201,6 +201,7 @@ func TestUpdate_LogEntry_MetadataExtracted(t *testing.T) {
 		Timestamp: time.Now(),
 		Iteration: 3,
 		MaxIter:   10,
+		Agent:     "codex",
 		Branch:    "feat/test",
 		Mode:      "build",
 		TotalCost: 0.05,
@@ -216,6 +217,9 @@ func TestUpdate_LogEntry_MetadataExtracted(t *testing.T) {
 	}
 	if m2.mode != "build" {
 		t.Errorf("mode = %q, want \"build\"", m2.mode)
+	}
+	if m2.agent != "codex" {
+		t.Errorf("agent = %q, want \"codex\"", m2.agent)
 	}
 }
 

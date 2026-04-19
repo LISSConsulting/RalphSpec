@@ -46,6 +46,7 @@ func TestSpecifyCmd_WithSpecFlag_CreatesDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	initGitRepoOnBranch(t, dir, "main")
+	t.Setenv("PATH", "")
 
 	cmd := specifyCmd()
 	if err := cmd.Flags().Set("spec", "004-my-feature"); err != nil {
@@ -298,6 +299,7 @@ func TestSpeckitPlanCmd_AllPrereqs_ReachesSpeckit(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	initGitRepoOnBranch(t, dir, "main")
+	t.Setenv("PATH", "")
 
 	specDir := filepath.Join(dir, "specs", "004-feature")
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
@@ -325,6 +327,7 @@ func TestClarifyCmd_AllPrereqs_ReachesSpeckit(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	initGitRepoOnBranch(t, dir, "main")
+	t.Setenv("PATH", "")
 
 	specDir := filepath.Join(dir, "specs", "004-feature")
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
@@ -351,6 +354,7 @@ func TestSpeckitTasksCmd_AllPrereqs_ReachesSpeckit(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	initGitRepoOnBranch(t, dir, "main")
+	t.Setenv("PATH", "")
 
 	specDir := filepath.Join(dir, "specs", "004-feature")
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
@@ -377,6 +381,7 @@ func TestSpeckitRunCmd_AllPrereqs_ReachesSpeckit(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	initGitRepoOnBranch(t, dir, "main")
+	t.Setenv("PATH", "")
 
 	specDir := filepath.Join(dir, "specs", "004-feature")
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
@@ -436,6 +441,7 @@ func TestExecuteSpeckit_InteractiveVsNonInteractive(t *testing.T) {
 	}
 
 	t.Run("interactive omits -p flag", func(t *testing.T) {
+		t.Setenv("PATH", "")
 		err := executeSpeckit(context.Background(), "speckit.clarify", nil, true)
 		if !isNotFlagErr(err) {
 			t.Errorf("interactive executeSpeckit produced flag error: %v", err)
@@ -443,6 +449,7 @@ func TestExecuteSpeckit_InteractiveVsNonInteractive(t *testing.T) {
 	})
 
 	t.Run("non-interactive uses -p flag", func(t *testing.T) {
+		t.Setenv("PATH", "")
 		err := executeSpeckit(context.Background(), "speckit.plan", nil, false)
 		if !isNotFlagErr(err) {
 			t.Errorf("non-interactive executeSpeckit produced flag error: %v", err)

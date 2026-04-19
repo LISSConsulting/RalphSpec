@@ -15,7 +15,9 @@ func TestDefaults(t *testing.T) {
 		got  any
 		want any
 	}{
+		{"agent.type", cfg.Agent.Type, AgentClaude},
 		{"claude.model", cfg.Claude.Model, "sonnet"},
+		{"codex.model", cfg.Codex.Model, ""},
 		{"claude.max_turns", cfg.Claude.MaxTurns, 0},
 		{"claude.danger_skip_permissions", cfg.Claude.DangerSkipPermissions, true},
 		{"plan.prompt_file", cfg.Plan.PromptFile, "PLAN.md"},
@@ -59,6 +61,9 @@ func TestLoad(t *testing.T) {
 [project]
 name = "TestProject"
 
+[agent]
+type = "codex"
+
 [claude]
 model = "opus"
 max_turns = 25
@@ -87,6 +92,9 @@ hang_timeout_seconds = 600
 [tui]
 accent_color = "#FF0000"
 log_retention = 10
+
+[codex]
+model = "gpt-5-codex"
 `
 		path := filepath.Join(dir, "ralph.toml")
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -104,7 +112,9 @@ log_retention = 10
 			want any
 		}{
 			{"project.name", cfg.Project.Name, "TestProject"},
+			{"agent.type", cfg.Agent.Type, AgentCodex},
 			{"claude.model", cfg.Claude.Model, "opus"},
+			{"codex.model", cfg.Codex.Model, "gpt-5-codex"},
 			{"claude.max_turns", cfg.Claude.MaxTurns, 25},
 			{"claude.danger_skip_permissions", cfg.Claude.DangerSkipPermissions, false},
 			{"plan.prompt_file", cfg.Plan.PromptFile, "MY_PLAN.md"},
