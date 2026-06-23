@@ -156,7 +156,7 @@ function Build-Dist($VersionValue) {
 
 function Publish-GitHubRelease($VersionValue) {
     Require-Cmd gh "https://cli.github.com"
-    $existing = (& gh release view $VersionValue --repo $Repo --json tagName 2>$null) -join ""
+    $existing = ((& gh release list --repo $Repo --limit 1000 --json tagName --jq ".[] | select(.tagName == `"$VersionValue`") | .tagName") -join "`n").Trim()
     $files = Get-ChildItem -Path $Dist -File -Filter "$Binary-*" | ForEach-Object { $_.FullName }
     if (-not $files) { throw "No dist assets found. Run just dist first." }
 
