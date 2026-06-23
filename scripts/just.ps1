@@ -76,7 +76,7 @@ function Invoke-Step($Name, [scriptblock]$Action) {
 
 function Current-Version($Fallback = "dev") {
     try {
-        $v = (& git describe --tags --always --dirty 2>$null).Trim()
+        $v = ((& git describe --tags --always --dirty 2>$null) -join "`n").Trim()
         if ($v) { return $v }
     } catch {}
     return $Fallback
@@ -124,7 +124,7 @@ function Assert-CleanTree {
         Warn "ALLOW_DIRTY=1 set; skipping clean worktree guard"
         return
     }
-    $dirty = (& git status --porcelain).Trim()
+    $dirty = ((& git status --porcelain) -join "`n").Trim()
     if ($dirty) { throw "Worktree has uncommitted changes. Commit/stash them or set ALLOW_DIRTY=1." }
     Good "worktree clean"
 }
@@ -216,7 +216,7 @@ function Publish-Scoop($VersionValue) {
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding utf8
     Invoke-Step "commit Scoop manifest" {
         & git -C $bucketDir add "bucket/$manifestName"
-        $changed = (& git -C $bucketDir status --porcelain).Trim()
+        $changed = ((& git -C $bucketDir status --porcelain) -join "`n").Trim()
         if (-not $changed) {
             Warn "Scoop manifest already current"
             return
