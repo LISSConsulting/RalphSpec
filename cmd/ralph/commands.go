@@ -36,7 +36,7 @@ func loopPlanCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
 	return cmd
 }
@@ -57,7 +57,7 @@ func loopBuildCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
@@ -80,7 +80,7 @@ func loopRunCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
@@ -104,7 +104,7 @@ func buildCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex)")
+	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")

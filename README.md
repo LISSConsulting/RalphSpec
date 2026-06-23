@@ -244,6 +244,9 @@ Requires [worktrunk](https://github.com/nicholasgasior/worktrunk) (`wt`) install
 # Run a build in an isolated git worktree (your working dir stays clean)
 ralph build --worktree
 
+# Run an isolated Codex-backed build
+ralph build --worktree --agent codex
+
 # Same in headless mode
 ralph build -w --no-tui --max 10
 
@@ -259,7 +262,7 @@ ralph worktree clean feat/my-branch
 
 ### Parallel Agents from the Dashboard
 
-Open the TUI (`ralph`), navigate to the **Specs** panel, and press `W` on any spec to launch it in its own worktree. The **Worktrees** panel (panel 5) shows all active agents in real-time.
+Open the TUI (`ralph`), navigate to the **Specs** panel, and press `W` on any spec to launch it in its own worktree. The **Worktrees** panel (panel 5) shows each active session, including which agent produced it, in real time. Dashboard-launched worktrees use the configured project agent from `[agent].type`.
 
 | Key | Action |
 |-----|--------|
@@ -352,6 +355,10 @@ merge_target  = ""            # target branch for auto-merge (default: current b
 path_template = ""            # worktree directory template (uses worktrunk default)
 ```
 
+Agent selection precedence is explicit: a `--agent claude` or `--agent codex` flag applies to that run only, then Ralph falls back to `[agent].type`, then to Claude as the built-in default. Ralph rejects unknown agent names and does not silently fall back from Codex to Claude.
+
+Codex prerequisites are checked at run start. If `codex` is missing from `PATH`, not authenticated, or fails to start, Ralph stops before doing work and reports an actionable setup error. Use `codex --help` and `codex login` to verify local setup before selecting Codex.
+
 ### 🔑 Environment Variables
 
 | Variable | Required | Description |
@@ -405,6 +412,7 @@ path_template = ""            # worktree directory template (uses worktrunk defa
 | `--roam` | Roam freely across the codebase (no spec boundary) |
 | `--focus "<topic>"` | Constrain roam to a specific topic (e.g. `"UI/UX"`, `"tests"`) |
 | `--worktree` / `-w` | Run loop in an isolated git worktree via worktrunk |
+| `--agent claude\|codex` | Override the configured agent for this invocation only |
 
 ### Examples
 
@@ -429,6 +437,12 @@ ralph build --worktree
 
 # 🌿 Headless worktree build
 ralph build -w --no-tui --max 5
+
+# 🔮 Run Codex for one invocation without changing ralph.toml
+ralph loop run --agent codex --no-tui
+
+# 🔮 Run Codex from an isolated worktree
+ralph build --worktree --agent codex
 ```
 
 ---
@@ -492,9 +506,18 @@ ralph build -w --no-tui --max 5
 | Agent | Status | Description |
 |-------|:------:|-------------|
 | 🤖 Claude Code CLI | ✅ | Default — streaming JSON event parser, full integration |
-| 🔮 OpenAI Codex | ✅ | Opt-in for supported single-run `build`, `loop build`, `loop plan`, and `loop run` flows |
+| 🔮 OpenAI Codex | ✅ | Opt-in via `[agent].type = "codex"` or `--agent codex`; supports CLI, dashboard, worktree, and status/history attribution |
 | 💎 Gemini | 🔜 | Planned |
 | 🔧 Custom | 🔜 | Bring your own agent via adapter interface |
+
+### Codex Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `codex agent unavailable: codex executable not found on PATH` | Install Codex CLI and ensure `codex --help` works in the same shell. |
+| Codex starts but reports authentication/setup failure | Run `codex login`, then retry the Ralph command. |
+| A run used the wrong agent | Check for a per-run `--agent` flag first, then `[agent].type` in `ralph.toml`. |
+| Historical output is confusing after changing defaults | Use `ralph status`, TUI run history, or JSONL logs; newly written records include the producing agent. |
 
 ---
 

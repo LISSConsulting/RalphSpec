@@ -46,12 +46,13 @@ func (s AgentState) String() string {
 	}
 }
 
-// WorktreeAgent tracks one Claude agent running inside a git worktree.
+// WorktreeAgent tracks one agent running inside a git worktree.
 type WorktreeAgent struct {
 	Branch       string
 	WorktreePath string
 	SpecName     string
 	SpecDir      string
+	Agent        string
 	State        AgentState
 	Iterations   int
 	TotalCost    float64
@@ -64,5 +65,6 @@ type WorktreeAgent struct {
 // TUI and other consumers can distinguish events from multiple parallel agents.
 type TaggedLogEntry struct {
 	Branch string
+	Agent  string
 	Entry  loop.LogEntry
 }

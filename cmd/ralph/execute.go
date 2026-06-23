@@ -410,15 +410,9 @@ func buildAgent(agentType string) (claude.Agent, error) {
 }
 
 func validateAgentFlow(agentType string, useWorktree bool, dashboard bool) error {
-	if agentType != config.AgentCodex {
-		return nil
-	}
-	if useWorktree {
-		return fmt.Errorf("codex agent unsupported for worktree mode; use --agent claude or omit --worktree")
-	}
-	if dashboard {
-		return fmt.Errorf("codex agent unsupported for dashboard mode; start Codex with ralph build --agent codex --no-tui or use claude in the dashboard")
-	}
+	_ = agentType
+	_ = useWorktree
+	_ = dashboard
 	return nil
 }
 

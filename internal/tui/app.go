@@ -194,7 +194,11 @@ func waitForTaggedEvent(ch <-chan orchestrator.TaggedLogEntry) tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return taggedEventMsg{Branch: tagged.Branch, Entry: tagged.Entry}
+		entry := tagged.Entry
+		if entry.Agent == "" {
+			entry.Agent = tagged.Agent
+		}
+		return taggedEventMsg{Branch: tagged.Branch, Entry: entry}
 	}
 }
 
@@ -795,6 +799,7 @@ func agentsToEntries(agents []*orchestrator.WorktreeAgent) []panels.WorktreeEntr
 	for i, a := range agents {
 		entries[i] = panels.WorktreeEntry{
 			Branch:     a.Branch,
+			Agent:      a.Agent,
 			State:      a.State.String(),
 			Iterations: a.Iterations,
 			TotalCost:  a.TotalCost,

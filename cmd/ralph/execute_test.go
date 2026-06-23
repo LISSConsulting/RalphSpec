@@ -391,11 +391,11 @@ func TestResolveAgent(t *testing.T) {
 }
 
 func TestValidateAgentFlow(t *testing.T) {
-	if err := validateAgentFlow(config.AgentCodex, true, false); err == nil {
-		t.Fatal("expected worktree rejection for codex")
+	if err := validateAgentFlow(config.AgentCodex, true, false); err != nil {
+		t.Fatalf("codex worktree should be supported, got %v", err)
 	}
-	if err := validateAgentFlow(config.AgentCodex, false, true); err == nil {
-		t.Fatal("expected dashboard rejection for codex")
+	if err := validateAgentFlow(config.AgentCodex, false, true); err != nil {
+		t.Fatalf("codex dashboard should be supported, got %v", err)
 	}
 	if err := validateAgentFlow(config.AgentClaude, true, true); err != nil {
 		t.Fatalf("claude should remain supported, got %v", err)
@@ -465,7 +465,7 @@ func TestExecuteLoop_CodexUnavailable(t *testing.T) {
 	}
 }
 
-func TestExecuteLoop_CodexWorktreeUnsupported(t *testing.T) {
+func TestExecuteLoop_CodexWorktreeAccepted(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
@@ -474,13 +474,10 @@ func TestExecuteLoop_CodexWorktreeUnsupported(t *testing.T) {
 
 	err := executeLoop(loop.ModePlan, 1, true, false, "", false, true, config.AgentCodex)
 	if err == nil {
-		t.Fatal("expected unsupported-worktree error")
+		t.Fatal("expected worktree setup error without worktrunk, not codex rejection")
 	}
-	if !strings.Contains(err.Error(), "codex agent unsupported for worktree mode") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(err.Error(), "omit --worktree") {
-		t.Fatalf("expected actionable guidance, got: %v", err)
+	if strings.Contains(err.Error(), "codex agent unsupported for worktree mode") {
+		t.Fatalf("unexpected codex rejection: %v", err)
 	}
 }
 
@@ -1127,6 +1124,8 @@ func TestExecuteLoop_Roam_StaysOnCurrentBranch(t *testing.T) {
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
 	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
+	writeFakeCLIExecutable(t, dir, "claude")
+	prependCLIPath(t, dir)
 
 	// Record the branch before running with roam.
 	before := exec.Command("git", "branch", "--show-current")

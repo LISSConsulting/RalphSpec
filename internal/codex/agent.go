@@ -3,7 +3,9 @@ package codex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -69,7 +71,10 @@ func CheckAvailable(executable string) error {
 		executable = "codex"
 	}
 	if _, err := exec.LookPath(executable); err != nil {
-		return fmt.Errorf("codex executable not found on PATH")
+		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("codex executable not found on PATH")
+		}
+		return fmt.Errorf("codex executable lookup failed: %w", err)
 	}
 	return nil
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/LISSConsulting/RalphSpec/internal/claude"
+	"github.com/LISSConsulting/RalphSpec/internal/codex"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/git"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
@@ -103,6 +105,11 @@ func (o *Orchestrator) AgentState(branch string) (AgentState, bool) {
 //   - an agent for branch already exists and is not in a terminal state
 //   - WorktreeOps.Switch() fails
 func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir string, mode loop.Mode, maxOverride int) error {
+	agentType, agentImpl, err := o.buildAgent()
+	if err != nil {
+		return err
+	}
+
 	o.mu.Lock()
 
 	// Reject duplicate branches (non-terminal state).
@@ -130,6 +137,7 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 		Branch:   branch,
 		SpecName: specName,
 		SpecDir:  specDir,
+		Agent:    agentType,
 		State:    StateCreating,
 		Events:   events,
 		StopCh:   stopCh,
@@ -159,7 +167,7 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 
 	// Register with fan-in so events reach MergedEvents.
 	// The onEntry callback updates per-agent stats under the lock.
-	startFanIn(branch, events, o.MergedEvents, func(e loop.LogEntry) {
+	startFanIn(branch, agentType, events, o.MergedEvents, func(e loop.LogEntry) {
 		if e.Kind == loop.LogIterComplete {
 			o.mu.Lock()
 			agent.Iterations++
@@ -170,7 +178,8 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 
 	// Build the loop for this worktree.
 	lp := &loop.Loop{
-		Agent:     &loop.ClaudeAgent{Executable: "claude"},
+		Agent:     agentImpl,
+		AgentType: agentType,
 		Git:       git.NewRunner(wtPath),
 		Config:    o.cfg,
 		Dir:       wtPath,
@@ -409,11 +418,13 @@ func (o *Orchestrator) autoMergeIfNeeded(agent *WorktreeAgent, branch string) {
 	if err := o.Merge(branch); err != nil {
 		o.emitToMerged(branch, loop.LogEntry{
 			Kind:    loop.LogError,
+			Agent:   agent.Agent,
 			Message: fmt.Sprintf("worktree %s: auto-merge failed: %v", branch, err),
 		})
 	} else {
 		o.emitToMerged(branch, loop.LogEntry{
 			Kind:    loop.LogInfo,
+			Agent:   agent.Agent,
 			Message: fmt.Sprintf("worktree %s: auto-merge completed successfully", branch),
 		})
 	}
@@ -422,11 +433,38 @@ func (o *Orchestrator) autoMergeIfNeeded(agent *WorktreeAgent, branch string) {
 // emitToMerged sends a synthesised log entry to MergedEvents (non-blocking)
 // and fires NotificationHook if configured.
 func (o *Orchestrator) emitToMerged(branch string, entry loop.LogEntry) {
+	agent := ""
+	o.mu.Lock()
+	if a, ok := o.agents[branch]; ok {
+		agent = a.Agent
+	}
+	o.mu.Unlock()
+	if entry.Agent == "" {
+		entry.Agent = agent
+	}
 	select {
-	case o.MergedEvents <- TaggedLogEntry{Branch: branch, Entry: entry}:
+	case o.MergedEvents <- TaggedLogEntry{Branch: branch, Agent: entry.Agent, Entry: entry}:
 	default:
 	}
 	if o.NotificationHook != nil {
 		o.NotificationHook(entry)
+	}
+}
+
+func (o *Orchestrator) buildAgent() (string, claude.Agent, error) {
+	agentType := config.AgentClaude
+	if o.cfg != nil && o.cfg.Agent.Type != "" {
+		agentType = o.cfg.Agent.Type
+	}
+	switch agentType {
+	case config.AgentClaude:
+		return agentType, loop.NewClaudeAgent(), nil
+	case config.AgentCodex:
+		if err := codex.CheckAvailable(""); err != nil {
+			return "", nil, fmt.Errorf("codex agent unavailable: %w; install or log into Codex CLI, or use --agent claude", err)
+		}
+		return agentType, codex.NewAgent(), nil
+	default:
+		return "", nil, fmt.Errorf("agent.type must be one of %s,%s", config.AgentClaude, config.AgentCodex)
 	}
 }

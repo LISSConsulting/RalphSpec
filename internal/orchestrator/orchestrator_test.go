@@ -282,7 +282,7 @@ func TestFanIn_EventsTaggedCorrectly(t *testing.T) {
 	events := make(chan loop.LogEntry, 4)
 	var wg sync.WaitGroup
 
-	startFanIn("feat/fan", events, merged, nil, &wg)
+	startFanIn("feat/fan", "codex", events, merged, nil, &wg)
 
 	events <- loop.LogEntry{Kind: loop.LogInfo, Message: "hello from fan-in"}
 	close(events)
@@ -300,6 +300,9 @@ func TestFanIn_EventsTaggedCorrectly(t *testing.T) {
 	if got[0].Branch != "feat/fan" {
 		t.Errorf("branch: got %q, want %q", got[0].Branch, "feat/fan")
 	}
+	if got[0].Agent != "codex" {
+		t.Errorf("agent: got %q, want %q", got[0].Agent, "codex")
+	}
 	if got[0].Entry.Message != "hello from fan-in" {
 		t.Errorf("message: got %q", got[0].Entry.Message)
 	}
@@ -310,7 +313,7 @@ func TestFanIn_ChannelCloseHandled(t *testing.T) {
 	events := make(chan loop.LogEntry)
 	var wg sync.WaitGroup
 
-	startFanIn("feat/close", events, merged, nil, &wg)
+	startFanIn("feat/close", "claude", events, merged, nil, &wg)
 	close(events) // goroutine should exit cleanly
 	wg.Wait()
 }
@@ -488,7 +491,7 @@ func TestFanIn_OnEntryCallback_UpdatesStats(t *testing.T) {
 	var wg sync.WaitGroup
 
 	var callCount int
-	startFanIn("feat/stats", events, merged, func(e loop.LogEntry) {
+	startFanIn("feat/stats", "claude", events, merged, func(e loop.LogEntry) {
 		callCount++
 	}, &wg)
 

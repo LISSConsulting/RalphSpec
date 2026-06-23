@@ -698,31 +698,37 @@ func TestLoopController_StartLoop_ForwardGoroutine(t *testing.T) {
 	waitForIdle(t, ctrl)
 }
 
-func TestLoopController_StartLoop_CodexDashboardUnsupported(t *testing.T) {
+func TestLoopController_StartLoop_CodexDashboardAllowed(t *testing.T) {
 	tuiSend := make(chan loop.LogEntry, 8)
 	cfg := config.Defaults()
 	cfg.Agent.Type = config.AgentCodex
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
+	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 
 	ctrl := &loopController{
-		cfg:      &cfg,
-		dir:      t.TempDir(),
-		tuiSend:  tuiSend,
-		outerCtx: context.Background(),
+		cfg:       &cfg,
+		dir:       dir,
+		gitRunner: git.NewRunner(dir),
+		tuiSend:   tuiSend,
+		outerCtx:  context.Background(),
+		agent:     &errAgent{err: errors.New("fake codex stop")},
 	}
 
 	ctrl.StartLoop("plan")
 	waitForIdle(t, ctrl)
 
 	close(tuiSend)
-	var found bool
+	var unsupported bool
 	for entry := range tuiSend {
 		if entry.Kind == loop.LogError && strings.Contains(entry.Message, "codex agent unsupported for dashboard mode") {
-			found = true
+			unsupported = true
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected dashboard-mode codex error event")
+	if unsupported {
+		t.Fatal("did not expect dashboard-mode codex rejection")
 	}
 }
 

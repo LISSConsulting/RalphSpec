@@ -19,8 +19,8 @@ coverage.*
 profile.cov
 *.cov
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Dependency directories
+vendor/
 
 # Go workspace file
 go.work
@@ -29,6 +29,7 @@ go.work.sum
 # Build output
 /ralph
 /ralph-*
+/dist/
 
 # Ralph runtime state
 .ralph/
@@ -41,3 +42,9 @@ go.work.sum
 .idea/
 .vscode/
 .ralph/regent-state.json
+
+# OS and temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp

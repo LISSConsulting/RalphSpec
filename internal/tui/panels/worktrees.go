@@ -14,6 +14,7 @@ import (
 // It is populated from orchestrator.WorktreeAgent fields by the TUI layer.
 type WorktreeEntry struct {
 	Branch     string
+	Agent      string
 	State      string // "creating", "running", "completed", "failed", "stopped", etc.
 	Iterations int
 	TotalCost  float64
@@ -41,7 +42,11 @@ func (w worktreeItem) Title() string {
 }
 
 func (w worktreeItem) Description() string {
-	return fmt.Sprintf("iter:%-3d  $%.4f  %s", w.entry.Iterations, w.entry.TotalCost, w.entry.SpecName)
+	agent := w.entry.Agent
+	if agent == "" {
+		agent = "agent"
+	}
+	return fmt.Sprintf("%s  iter:%-3d  $%.4f  %s", agent, w.entry.Iterations, w.entry.TotalCost, w.entry.SpecName)
 }
 
 func (w worktreeItem) FilterValue() string { return w.entry.Branch }
