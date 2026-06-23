@@ -173,7 +173,7 @@ function Publish-Scoop($VersionValue) {
     Require-Cmd git
     Assert-Version $VersionValue
 
-    $bucketRepo = if ($env:SCOOP_BUCKET_REPO) { $env:SCOOP_BUCKET_REPO } else { "https://github.com/LISSTech/scoop-bucket.git" }
+    $bucketRepo = if ($env:SCOOP_BUCKET_REPO) { $env:SCOOP_BUCKET_REPO } else { "https://github.com/LISSConsulting/scoop-bucket.git" }
     $manifestName = if ($env:SCOOP_MANIFEST) { $env:SCOOP_MANIFEST } else { "ralph.json" }
     $bucketDir = if ($env:SCOOP_BUCKET_DIR) { $env:SCOOP_BUCKET_DIR } else { Join-Path $env:TEMP "lisstech-scoop-bucket" }
 
