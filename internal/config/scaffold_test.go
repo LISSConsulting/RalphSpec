@@ -65,11 +65,12 @@ func TestScaffoldProject(t *testing.T) {
 		}
 	})
 
-	t.Run("skips existing files", func(t *testing.T) {
+	t.Run("updates existing ralph toml and skips existing prompts", func(t *testing.T) {
 		dir := t.TempDir()
 
-		// Pre-create ralph.toml and BUILD.md
-		if err := os.WriteFile(filepath.Join(dir, "ralph.toml"), []byte("existing"), 0644); err != nil {
+		// Pre-create a valid old ralph.toml and BUILD.md.
+		oldConfig := "[project]\nname = \"Custom\"\n\n[build]\nprompt_file = \"CUSTOM_BUILD.md\"\n"
+		if err := os.WriteFile(filepath.Join(dir, "ralph.toml"), []byte(oldConfig), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, "BUILD.md"), []byte("custom build prompt"), 0644); err != nil {
@@ -81,8 +82,9 @@ func TestScaffoldProject(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Should only create the missing files (PLAN.md, specs/, .gitignore, CHRONICLE.md)
+		// Should update ralph.toml and create the missing files (PLAN.md, specs/, .gitignore, CHRONICLE.md).
 		expected := []string{
+			filepath.Join(dir, "ralph.toml"),
 			filepath.Join(dir, "PLAN.md"),
 			filepath.Join(dir, "specs"),
 			filepath.Join(dir, ".gitignore"),
@@ -105,15 +107,40 @@ func TestScaffoldProject(t *testing.T) {
 		if string(content) != "custom build prompt" {
 			t.Error("BUILD.md was overwritten")
 		}
+
+		updatedConfig, err := os.ReadFile(filepath.Join(dir, "ralph.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{`name = "Custom"`, `[agent]`, `type = "claude"`, `max_iterations = 0`, `focus = ""`, `[worktree]`, `max_parallel = 5`} {
+			if !strings.Contains(string(updatedConfig), want) {
+				t.Errorf("updated ralph.toml should contain %q", want)
+			}
+		}
+
+		cfg, err := Load(filepath.Join(dir, "ralph.toml"))
+		if err != nil {
+			t.Fatalf("updated ralph.toml should load: %v", err)
+		}
+		if cfg.Project.Name != "Custom" {
+			t.Errorf("project.name should be preserved: got %q", cfg.Project.Name)
+		}
+		if cfg.Agent.Type != AgentClaude {
+			t.Errorf("missing agent.type should be added: got %q", cfg.Agent.Type)
+		}
+		if cfg.Build.PromptFile != "CUSTOM_BUILD.md" {
+			t.Errorf("build.prompt_file should be preserved: got %q", cfg.Build.PromptFile)
+		}
+		if cfg.Worktree.MaxParallel != 5 {
+			t.Errorf("missing worktree.max_parallel should be added: got %d", cfg.Worktree.MaxParallel)
+		}
 	})
 
 	t.Run("all files exist returns empty list", func(t *testing.T) {
 		dir := t.TempDir()
 
-		// Create all files including .gitignore with the required entry
-		if err := os.WriteFile(filepath.Join(dir, "ralph.toml"), []byte("x"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		// Create all files including complete ralph.toml and .gitignore with the required entry.
+		writeCompleteRalphTOML(t, dir)
 		if err := os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("x"), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -172,8 +199,8 @@ func TestScaffoldProject(t *testing.T) {
 	t.Run("appends entry to gitignore that has no trailing newline", func(t *testing.T) {
 		dir := t.TempDir()
 		// Pre-create all files so only .gitignore append logic runs.
+		writeCompleteRalphTOML(t, dir)
 		for name, content := range map[string]string{
-			"ralph.toml":   "x",
 			"PLAN.md":      "x",
 			"BUILD.md":     "x",
 			"CHRONICLE.md": "x",
@@ -213,9 +240,7 @@ func TestScaffoldProject(t *testing.T) {
 	t.Run("skips gitignore when entry already present", func(t *testing.T) {
 		dir := t.TempDir()
 		// Pre-create all files including .gitignore with the entry already present
-		if err := os.WriteFile(filepath.Join(dir, "ralph.toml"), []byte("x"), 0644); err != nil {
-			t.Fatal(err)
-		}
+		writeCompleteRalphTOML(t, dir)
 		if err := os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("x"), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -244,10 +269,10 @@ func TestScaffoldProject(t *testing.T) {
 	t.Run("gitignore is a directory returns error", func(t *testing.T) {
 		dir := t.TempDir()
 		// Pre-create all files that scaffold writes before .gitignore
+		writeCompleteRalphTOML(t, dir)
 		for name, content := range map[string]string{
-			"ralph.toml": "x",
-			"PLAN.md":    "x",
-			"BUILD.md":   "x",
+			"PLAN.md":  "x",
+			"BUILD.md": "x",
 		} {
 			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
 				t.Fatal(err)
@@ -374,4 +399,11 @@ func TestScaffoldProject(t *testing.T) {
 			t.Errorf("default codex.model: got %q, want empty", cfg.Codex.Model)
 		}
 	})
+}
+
+func writeCompleteRalphTOML(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := InitFile(dir); err != nil {
+		t.Fatal(err)
+	}
 }

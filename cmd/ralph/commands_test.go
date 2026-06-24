@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/regent"
 	"github.com/LISSConsulting/RalphSpec/internal/spec"
 )
@@ -419,10 +420,12 @@ func TestInitCmd_ScaffoldError(t *testing.T) {
 	// the function progresses past them and reaches the .gitignore read step.
 	dir := t.TempDir()
 	t.Chdir(dir)
+	if _, err := config.InitFile(dir); err != nil {
+		t.Fatal(err)
+	}
 	for name, content := range map[string]string{
-		"ralph.toml": "x",
-		"PLAN.md":    "x",
-		"BUILD.md":   "x",
+		"PLAN.md":  "x",
+		"BUILD.md": "x",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
 			t.Fatalf("WriteFile %s: %v", name, err)
