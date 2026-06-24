@@ -174,7 +174,7 @@ function Publish-Scoop($VersionValue) {
     Assert-Version $VersionValue
 
     $bucketRepo = if ($env:SCOOP_BUCKET_REPO) { $env:SCOOP_BUCKET_REPO } else { "https://github.com/LISSConsulting/scoop-bucket.git" }
-    $manifestName = if ($env:SCOOP_MANIFEST) { $env:SCOOP_MANIFEST } else { "ralph.json" }
+    $manifestName = if ($env:SCOOP_MANIFEST) { $env:SCOOP_MANIFEST } else { "ralphspec.json" }
     $bucketDir = if ($env:SCOOP_BUCKET_DIR) { $env:SCOOP_BUCKET_DIR } else { Join-Path $env:TEMP "lisstech-scoop-bucket" }
 
     if (Test-Path $bucketDir) {
@@ -193,7 +193,7 @@ function Publish-Scoop($VersionValue) {
 
     $manifest = [ordered]@{
         version = $plainVersion
-        description = "Spec-driven AI coding loop CLI with a Regent supervisor"
+        description = "Spec-driven AI coding loop CLI - with a supervisor that keeps the King honest"
         homepage = "https://github.com/$Repo"
         license = "MIT"
         architecture = [ordered]@{
@@ -202,8 +202,11 @@ function Publish-Scoop($VersionValue) {
                 hash = $hash
             }
         }
-        bin = "ralph.exe"
-        checkver = [ordered]@{ github = "https://github.com/$Repo" }
+        bin = ,@("$Binary-windows-amd64.exe", $Binary)
+        checkver = [ordered]@{
+            url = "https://api.github.com/repos/$Repo/releases"
+            regex = "v([\d.]+\-?\w*)"
+        }
         autoupdate = [ordered]@{
             architecture = [ordered]@{
                 "64bit" = [ordered]@{
