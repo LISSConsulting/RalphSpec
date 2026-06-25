@@ -42,12 +42,15 @@ type streamMessage struct {
 	Role       string         `json:"role"`
 	Name       string         `json:"name"`
 	Content    any            `json:"content"`
+	Item       *streamItem    `json:"item"`
 	Text       string         `json:"text"`
 	Delta      string         `json:"delta"`
 	ToolName   string         `json:"tool_name"`
 	ToolInput  map[string]any `json:"tool_input"`
 	Input      map[string]any `json:"input"`
+	Arguments  any            `json:"arguments"`
 	Result     string         `json:"result"`
+	Message    string         `json:"message"`
 	Error      string         `json:"error"`
 	IsError    bool           `json:"is_error"`
 	CostUSD    float64        `json:"cost_usd"`
@@ -55,6 +58,21 @@ type streamMessage struct {
 	DurationS  float64        `json:"duration_seconds"`
 	Subtype    string         `json:"subtype"`
 	Status     string         `json:"status"`
+}
+
+type streamItem struct {
+	Type      string         `json:"type"`
+	Role      string         `json:"role"`
+	Name      string         `json:"name"`
+	Content   any            `json:"content"`
+	Text      string         `json:"text"`
+	Delta     string         `json:"delta"`
+	ToolName  string         `json:"tool_name"`
+	ToolInput map[string]any `json:"tool_input"`
+	Input     map[string]any `json:"input"`
+	Arguments any            `json:"arguments"`
+	Output    string         `json:"output"`
+	Status    string         `json:"status"`
 }
 
 func parseLine(line []byte) []claude.Event {
@@ -67,16 +85,17 @@ func parseLine(line []byte) []claude.Event {
 		return []claude.Event{claude.TextEvent(text)}
 	}
 
+	if events := itemEvents(msg); len(events) > 0 {
+		return events
+	}
+
 	toolName, toolInput := messageTool(msg)
 	if toolName != "" {
 		return []claude.Event{claude.ToolUseEvent(toolName, toolInput)}
 	}
 
 	if msg.IsError || msg.Error != "" || msg.Type == "error" {
-		errText := msg.Error
-		if errText == "" {
-			errText = msg.Result
-		}
+		errText := firstNonBlank(msg.Error, msg.Message, msg.Result)
 		if errText == "" {
 			errText = "codex run failed"
 		}
@@ -102,12 +121,37 @@ func parseLine(line []byte) []claude.Event {
 }
 
 func messageText(msg streamMessage) string {
-	for _, s := range []string{msg.Text, msg.Delta, textFromContent(msg.Content)} {
-		if strings.TrimSpace(s) != "" {
-			return s
+	return firstNonBlank(msg.Text, msg.Delta, textFromContent(msg.Content))
+}
+
+func itemEvents(msg streamMessage) []claude.Event {
+	if msg.Item == nil {
+		switch msg.Type {
+		case "session_configured", "thread.started", "turn_started", "turn.started":
+			return []claude.Event{claude.TextEvent(displayType(msg.Type))}
 		}
+		return nil
 	}
-	return ""
+
+	item := msg.Item
+	name, input := itemTool(item)
+	if name != "" && isToolEvent(msg.Type, item.Type) {
+		return []claude.Event{claude.ToolUseEvent(name, input)}
+	}
+
+	if text := itemText(item); text != "" {
+		return []claude.Event{claude.TextEvent(text)}
+	}
+
+	if strings.Contains(msg.Type, "started") {
+		label := item.Type
+		if label == "" {
+			label = msg.Type
+		}
+		return []claude.Event{claude.TextEvent(displayType(label))}
+	}
+
+	return nil
 }
 
 func messageTool(msg streamMessage) (string, map[string]any) {
@@ -122,11 +166,14 @@ func messageTool(msg streamMessage) (string, map[string]any) {
 	if len(input) == 0 {
 		input = msg.Input
 	}
+	if len(input) == 0 {
+		input = argumentsMap(msg.Arguments)
+	}
 	return name, input
 }
 
 func isResultMessage(msg streamMessage) bool {
-	return msg.Type == "result" || msg.Type == "response.completed" || msg.Status == "completed" || msg.Subtype == "success"
+	return msg.Type == "result" || msg.Type == "response.completed" || msg.Type == "turn_completed" || msg.Type == "turn.completed" || msg.Status == "completed" || msg.Subtype == "success"
 }
 
 func textFromContent(content any) string {
@@ -146,4 +193,72 @@ func textFromContent(content any) string {
 	default:
 		return ""
 	}
+}
+
+func itemText(item *streamItem) string {
+	if item == nil || isToolLike(item.Type) {
+		return ""
+	}
+	return firstNonBlank(item.Text, item.Delta, textFromContent(item.Content))
+}
+
+func itemTool(item *streamItem) (string, map[string]any) {
+	name := firstNonBlank(item.ToolName, item.Name)
+	if name == "" {
+		return "", nil
+	}
+	input := item.ToolInput
+	if len(input) == 0 {
+		input = item.Input
+	}
+	if len(input) == 0 {
+		input = argumentsMap(item.Arguments)
+	}
+	return name, input
+}
+
+func isToolEvent(eventType, itemType string) bool {
+	return isToolLike(itemType) && !strings.Contains(itemType, "output") && (strings.Contains(eventType, "completed") || strings.Contains(eventType, "started"))
+}
+
+func isToolLike(typ string) bool {
+	return typ == "function_call" || strings.Contains(typ, "tool_call")
+}
+
+func argumentsMap(v any) map[string]any {
+	switch arg := v.(type) {
+	case nil:
+		return nil
+	case map[string]any:
+		return arg
+	case string:
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			return nil
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(arg), &parsed); err == nil {
+			return parsed
+		}
+		return map[string]any{"arguments": arg}
+	default:
+		return map[string]any{"arguments": fmt.Sprintf("%v", arg)}
+	}
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func displayType(typ string) string {
+	typ = strings.TrimSpace(strings.ReplaceAll(typ, ".", "_"))
+	if typ == "" {
+		return "codex event"
+	}
+	return "codex: " + strings.ReplaceAll(typ, "_", " ")
 }
