@@ -144,6 +144,48 @@ func TestDisplayCommandStripsPowerShellLauncher(t *testing.T) {
 	}
 }
 
+func TestCommandToolNameInfersLauncher(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "pwsh shorthand",
+			in:   `pwsh -Command pwd`,
+			want: "PowerShell",
+		},
+		{
+			name: "quoted powershell path",
+			in:   `"C:\Program Files\PowerShell\7\pwsh.exe" -Command "Get-ChildItem"`,
+			want: "PowerShell",
+		},
+		{
+			name: "bash launcher",
+			in:   `bash -lc "go test ./..."`,
+			want: "Bash",
+		},
+		{
+			name: "absolute sh launcher",
+			in:   `/bin/sh -c "go test ./..."`,
+			want: "Bash",
+		},
+		{
+			name: "cmd launcher",
+			in:   `cmd.exe /C dir`,
+			want: "Command Prompt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := commandToolName(tt.in); got != tt.want {
+				t.Fatalf("commandToolName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseStreamCodexMCPToolCall(t *testing.T) {
 	input := `{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"filesystem","tool":"read_file","arguments":"{\"path\":\"main.go\"}","status":"in_progress"}}`
 

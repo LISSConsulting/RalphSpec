@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
@@ -241,7 +242,7 @@ func codexActionTool(eventType string, item *streamItem) (string, map[string]any
 		if strings.TrimSpace(item.Command) == "" {
 			return "", nil
 		}
-		return "PowerShell", map[string]any{"command": displayCommand(item.Command)}
+		return commandToolName(item.Command), map[string]any{"command": displayCommand(item.Command)}
 	case "file_change":
 		path := summarizeFileChanges(item.Changes)
 		if path == "" {
@@ -294,6 +295,52 @@ func displayCommand(command string) string {
 		return command
 	}
 	return inner
+}
+
+func commandToolName(command string) string {
+	launcher := commandLauncher(command)
+	if strings.Contains(launcher, "pwsh") || strings.Contains(launcher, "powershell") {
+		return "PowerShell"
+	}
+	if launcher == "bash" || launcher == "sh" || launcher == "zsh" || launcher == "fish" {
+		return "Bash"
+	}
+	if launcher == "cmd" || launcher == "cmd.exe" {
+		return "Command Prompt"
+	}
+	if runtime.GOOS == "windows" {
+		return "PowerShell"
+	}
+	return "Bash"
+}
+
+func commandLauncher(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+
+	var token string
+	if command[0] == '"' || command[0] == '\'' {
+		quote := command[0]
+		if end := strings.IndexByte(command[1:], quote); end >= 0 {
+			token = command[1 : end+1]
+		}
+	}
+	if token == "" {
+		fields := strings.Fields(command)
+		if len(fields) == 0 {
+			return ""
+		}
+		token = fields[0]
+	}
+
+	token = strings.Trim(token, `"'`)
+	token = strings.ReplaceAll(token, `\`, "/")
+	if idx := strings.LastIndex(token, "/"); idx >= 0 {
+		token = token[idx+1:]
+	}
+	return strings.ToLower(token)
 }
 
 func isActionStart(eventType, status string) bool {
