@@ -241,7 +241,7 @@ func codexActionTool(eventType string, item *streamItem) (string, map[string]any
 		if strings.TrimSpace(item.Command) == "" {
 			return "", nil
 		}
-		return "Bash", map[string]any{"command": item.Command}
+		return "PowerShell", map[string]any{"command": displayCommand(item.Command)}
 	case "file_change":
 		path := summarizeFileChanges(item.Changes)
 		if path == "" {
@@ -267,6 +267,33 @@ func codexActionTool(eventType string, item *streamItem) (string, map[string]any
 	default:
 		return "", nil
 	}
+}
+
+func displayCommand(command string) string {
+	command = strings.TrimSpace(command)
+	lower := strings.ToLower(command)
+	idx := strings.Index(lower, "-command")
+	if idx < 0 {
+		return command
+	}
+
+	launcher := strings.TrimSpace(command[:idx])
+	launcherLower := strings.ToLower(launcher)
+	if !strings.Contains(launcherLower, "pwsh") && !strings.Contains(launcherLower, "powershell") {
+		return command
+	}
+
+	inner := strings.TrimSpace(command[idx+len("-command"):])
+	if len(inner) >= 2 {
+		first, last := inner[0], inner[len(inner)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			inner = inner[1 : len(inner)-1]
+		}
+	}
+	if inner == "" {
+		return command
+	}
+	return inner
 }
 
 func isActionStart(eventType, status string) bool {

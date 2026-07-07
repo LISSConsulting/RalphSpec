@@ -11,11 +11,12 @@ func TestToolIcon(t *testing.T) {
 		{"read_file", "📖"},
 		{"Glob", "📖"},
 		{"Grep", "📖"},
-		{"Write", "✏️ "},
-		{"write_file", "✏️ "},
-		{"Edit", "✏️ "},
-		{"NotebookEdit", "✏️ "},
+		{"Write", "✏️"},
+		{"write_file", "✏️"},
+		{"Edit", "✏️"},
+		{"NotebookEdit", "✏️"},
 		{"Bash", "🔧"},
+		{"PowerShell", "🔧"},
 		{"WebFetch", "🌐"},
 		{"WebSearch", "🌐"},
 		{"Task", "🔀"},
@@ -37,7 +38,7 @@ func TestToolStyle(t *testing.T) {
 	tools := []string{
 		"Read", "read_file", "Glob", "Grep",
 		"Write", "write_file", "Edit", "NotebookEdit",
-		"Bash",
+		"Bash", "PowerShell",
 		"WebFetch", // default branch
 		"Unknown",  // default branch
 		"",         // default branch

@@ -85,9 +85,9 @@ func (t Theme) RenderLogLine(entry loop.LogEntry, width int) string {
 		if len(displayName) > 14 {
 			displayName = displayName[:13] + "…"
 		}
-		name := style.Render(fmt.Sprintf("%-14s", displayName))
+		name := style.Render(displayName)
 		input := singleLine(entry.ToolInput)
-		maxInput := width - 32
+		maxInput := width - 18 - len(displayName)
 		if maxInput < 20 {
 			maxInput = 20
 		}

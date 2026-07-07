@@ -176,6 +176,25 @@ func TestRenderLogLine_NewlinesStripped(t *testing.T) {
 	}
 }
 
+func TestRenderLogLine_ToolNameNotPadded(t *testing.T) {
+	th := NewTheme("")
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	rendered := th.RenderLogLine(loop.LogEntry{
+		Kind:      loop.LogToolUse,
+		Timestamp: now,
+		ToolName:  "PowerShell",
+		ToolInput: "Get-ChildItem",
+	}, 120)
+
+	if !strings.Contains(rendered, "PowerShell Get-ChildItem") {
+		t.Fatalf("expected compact tool rendering, got %q", rendered)
+	}
+	if strings.Contains(rendered, "PowerShell  ") {
+		t.Fatalf("tool name should not be padded, got %q", rendered)
+	}
+}
+
 // TestRenderLogLine_LogIterComplete_NoSubtype covers the else branch in
 // the LogIterComplete case (Subtype == "").
 func TestRenderLogLine_LogIterComplete_NoSubtype(t *testing.T) {

@@ -92,10 +92,10 @@ func TestParseStreamCurrentCodexItemEvents(t *testing.T) {
 	if len(events) != 4 {
 		t.Fatalf("got %d events, want 4: %#v", len(events), events)
 	}
-	if events[0].Type != claude.EventToolUse || events[0].ToolName != "Bash" {
+	if events[0].Type != claude.EventToolUse || events[0].ToolName != "PowerShell" {
 		t.Fatalf("unexpected command event: %#v", events[0])
 	}
-	if events[0].ToolInput["command"] != "pwsh -Command pwd" {
+	if events[0].ToolInput["command"] != "pwd" {
 		t.Fatalf("unexpected command input: %#v", events[0].ToolInput)
 	}
 	if events[1].Type != claude.EventToolUse || events[1].ToolName != "Write" {
@@ -109,6 +109,38 @@ func TestParseStreamCurrentCodexItemEvents(t *testing.T) {
 	}
 	if events[3].Type != claude.EventResult || events[3].Subtype != "success" {
 		t.Fatalf("unexpected result event: %#v", events[3])
+	}
+}
+
+func TestDisplayCommandStripsPowerShellLauncher(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "pwsh shorthand",
+			in:   `pwsh -Command pwd`,
+			want: `pwd`,
+		},
+		{
+			name: "quoted powershell path",
+			in:   `"C:\Program Files\PowerShell\7\pwsh.exe" -Command "Get-Content -Raw -LiteralPath .\hello.txt"`,
+			want: `Get-Content -Raw -LiteralPath .\hello.txt`,
+		},
+		{
+			name: "non powershell command",
+			in:   `node -e "console.log('hi')"`,
+			want: `node -e "console.log('hi')"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := displayCommand(tt.in); got != tt.want {
+				t.Fatalf("displayCommand() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
