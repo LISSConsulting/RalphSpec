@@ -73,3 +73,60 @@ func TestParseStreamModernCodexEvents(t *testing.T) {
 		t.Fatalf("unexpected result event: %#v", events[5])
 	}
 }
+
+func TestParseStreamCurrentCodexItemEvents(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"pwsh -Command pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}`,
+		`{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"pwsh -Command pwd","aggregated_output":"C:\\repo","exit_code":0,"status":"completed"}}`,
+		`{"type":"item.started","item":{"id":"item_2","type":"file_change","changes":[{"path":"C:\\repo\\hello.txt","kind":"add"}],"status":"in_progress"}}`,
+		`{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"C:\\repo\\hello.txt","kind":"add"}],"status":"completed"}}`,
+		`{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"done"}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}`,
+	}, "\n")
+
+	var events []claude.Event
+	for ev := range ParseStream(strings.NewReader(input)) {
+		events = append(events, ev)
+	}
+
+	if len(events) != 4 {
+		t.Fatalf("got %d events, want 4: %#v", len(events), events)
+	}
+	if events[0].Type != claude.EventToolUse || events[0].ToolName != "Bash" {
+		t.Fatalf("unexpected command event: %#v", events[0])
+	}
+	if events[0].ToolInput["command"] != "pwsh -Command pwd" {
+		t.Fatalf("unexpected command input: %#v", events[0].ToolInput)
+	}
+	if events[1].Type != claude.EventToolUse || events[1].ToolName != "Write" {
+		t.Fatalf("unexpected file-change event: %#v", events[1])
+	}
+	if events[1].ToolInput["path"] != `add C:\repo\hello.txt` {
+		t.Fatalf("unexpected file-change input: %#v", events[1].ToolInput)
+	}
+	if events[2].Type != claude.EventText || events[2].Text != "done" {
+		t.Fatalf("unexpected text event: %#v", events[2])
+	}
+	if events[3].Type != claude.EventResult || events[3].Subtype != "success" {
+		t.Fatalf("unexpected result event: %#v", events[3])
+	}
+}
+
+func TestParseStreamCodexMCPToolCall(t *testing.T) {
+	input := `{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"filesystem","tool":"read_file","arguments":"{\"path\":\"main.go\"}","status":"in_progress"}}`
+
+	var events []claude.Event
+	for ev := range ParseStream(strings.NewReader(input)) {
+		events = append(events, ev)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1: %#v", len(events), events)
+	}
+	if events[0].Type != claude.EventToolUse || events[0].ToolName != "filesystem:read_file" {
+		t.Fatalf("unexpected MCP event: %#v", events[0])
+	}
+	if events[0].ToolInput["path"] != "main.go" {
+		t.Fatalf("unexpected MCP input: %#v", events[0].ToolInput)
+	}
+}

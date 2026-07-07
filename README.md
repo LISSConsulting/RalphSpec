@@ -506,7 +506,7 @@ ralph build --worktree --agent codex
 | Agent | Status | Description |
 |-------|:------:|-------------|
 | 🤖 Claude Code CLI | ✅ | Default — streaming JSON event parser, full integration |
-| 🔮 OpenAI Codex | ✅ | Opt-in via `[agent].type = "codex"` or `--agent codex`; supports CLI, dashboard, worktree, and status/history attribution |
+| 🔮 OpenAI Codex | ✅ | Opt-in via `[agent].type = "codex"` or `--agent codex`; runs unconstrained for autonomous execution and supports CLI, dashboard, worktree, and status/history attribution |
 | 💎 Gemini | 🔜 | Planned |
 | 🔧 Custom | 🔜 | Bring your own agent via adapter interface |
 
@@ -516,6 +516,7 @@ ralph build --worktree --agent codex
 |---------|-----|
 | `codex agent unavailable: codex executable not found on PATH` | Install Codex CLI and ensure `codex --help` works in the same shell. |
 | Codex starts but reports authentication/setup failure | Run `codex login`, then retry the Ralph command. |
+| Codex commands fail due to sandbox restrictions | Ralph launches Codex with `--dangerously-bypass-approvals-and-sandbox`; confirm you are running a current Codex CLI and no wrapper script is overriding the arguments. |
 | A run used the wrong agent | Check for a per-run `--agent` flag first, then `[agent].type` in `ralph.toml`. |
 | Historical output is confusing after changing defaults | Use `ralph status`, TUI run history, or JSONL logs; newly written records include the producing agent. |
 

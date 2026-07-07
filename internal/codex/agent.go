@@ -55,7 +55,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, opts claude.RunOptions) 
 }
 
 func (a *Agent) buildArgs(prompt string, opts claude.RunOptions) []string {
-	args := []string{"exec", "--json", "--full-auto"}
+	args := []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox"}
 	if opts.Dir != "" {
 		args = append(args, "--cd", opts.Dir)
 	}

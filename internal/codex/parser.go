@@ -61,9 +61,12 @@ type streamMessage struct {
 }
 
 type streamItem struct {
+	ID        string         `json:"id"`
 	Type      string         `json:"type"`
 	Role      string         `json:"role"`
 	Name      string         `json:"name"`
+	Tool      string         `json:"tool"`
+	Server    string         `json:"server"`
 	Content   any            `json:"content"`
 	Text      string         `json:"text"`
 	Delta     string         `json:"delta"`
@@ -71,8 +74,15 @@ type streamItem struct {
 	ToolInput map[string]any `json:"tool_input"`
 	Input     map[string]any `json:"input"`
 	Arguments any            `json:"arguments"`
+	Command   string         `json:"command"`
+	Changes   []fileChange   `json:"changes"`
 	Output    string         `json:"output"`
 	Status    string         `json:"status"`
+}
+
+type fileChange struct {
+	Path string `json:"path"`
+	Kind string `json:"kind"`
 }
 
 func parseLine(line []byte) []claude.Event {
@@ -134,6 +144,10 @@ func itemEvents(msg streamMessage) []claude.Event {
 	}
 
 	item := msg.Item
+	if name, input := codexActionTool(msg.Type, item); name != "" {
+		return []claude.Event{claude.ToolUseEvent(name, input)}
+	}
+
 	name, input := itemTool(item)
 	if name != "" && isToolEvent(msg.Type, item.Type) {
 		return []claude.Event{claude.ToolUseEvent(name, input)}
@@ -203,7 +217,7 @@ func itemText(item *streamItem) string {
 }
 
 func itemTool(item *streamItem) (string, map[string]any) {
-	name := firstNonBlank(item.ToolName, item.Name)
+	name := firstNonBlank(item.ToolName, item.Name, item.Tool)
 	if name == "" {
 		return "", nil
 	}
@@ -215,6 +229,78 @@ func itemTool(item *streamItem) (string, map[string]any) {
 		input = argumentsMap(item.Arguments)
 	}
 	return name, input
+}
+
+func codexActionTool(eventType string, item *streamItem) (string, map[string]any) {
+	if item == nil || !isActionStart(eventType, item.Status) {
+		return "", nil
+	}
+
+	switch item.Type {
+	case "command_execution":
+		if strings.TrimSpace(item.Command) == "" {
+			return "", nil
+		}
+		return "Bash", map[string]any{"command": item.Command}
+	case "file_change":
+		path := summarizeFileChanges(item.Changes)
+		if path == "" {
+			return "", nil
+		}
+		return fileChangeToolName(item.Changes), map[string]any{"path": path}
+	case "mcp_tool_call":
+		name := firstNonBlank(item.ToolName, item.Name, item.Tool)
+		if name == "" {
+			name = "MCP"
+		}
+		if item.Server != "" && name != "MCP" {
+			name = item.Server + ":" + name
+		}
+		input := item.ToolInput
+		if len(input) == 0 {
+			input = item.Input
+		}
+		if len(input) == 0 {
+			input = argumentsMap(item.Arguments)
+		}
+		return name, input
+	default:
+		return "", nil
+	}
+}
+
+func isActionStart(eventType, status string) bool {
+	return strings.Contains(eventType, "started") || status == "in_progress"
+}
+
+func summarizeFileChanges(changes []fileChange) string {
+	if len(changes) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(changes))
+	for _, change := range changes {
+		if change.Path == "" {
+			continue
+		}
+		if change.Kind != "" {
+			parts = append(parts, fmt.Sprintf("%s %s", change.Kind, change.Path))
+		} else {
+			parts = append(parts, change.Path)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func fileChangeToolName(changes []fileChange) string {
+	if len(changes) == 1 {
+		switch changes[0].Kind {
+		case "add":
+			return "Write"
+		case "delete":
+			return "Delete"
+		}
+	}
+	return "Edit"
 }
 
 func isToolEvent(eventType, itemType string) bool {

@@ -43,6 +43,8 @@ type mockGit struct {
 	branch         string
 	branchErr      error // error returned by CurrentBranch
 	dirty          bool
+	dirtySequence  []bool
+	dirtyCallIdx   int
 	diffFromRemote bool
 	pullErr        error
 	pushErr        error
@@ -64,12 +66,25 @@ type mockGit struct {
 	stashPopCalls int
 }
 
-func (m *mockGit) CurrentBranch() (string, error)        { return m.branch, m.branchErr }
-func (m *mockGit) HasUncommittedChanges() (bool, error)  { return m.dirty, m.dirtyErr }
+func (m *mockGit) CurrentBranch() (string, error) { return m.branch, m.branchErr }
+func (m *mockGit) HasUncommittedChanges() (bool, error) {
+	if m.dirtyErr != nil {
+		return false, m.dirtyErr
+	}
+	if len(m.dirtySequence) > 0 {
+		idx := m.dirtyCallIdx
+		if idx >= len(m.dirtySequence) {
+			idx = len(m.dirtySequence) - 1
+		}
+		m.dirtyCallIdx++
+		return m.dirtySequence[idx], nil
+	}
+	return m.dirty, nil
+}
 func (m *mockGit) HasRemoteBranch(_ string) bool         { return true }
 func (m *mockGit) Pull(_ string) error                   { m.pullCalls++; return m.pullErr }
 func (m *mockGit) Push(_ string) error                   { m.pushCalls++; return m.pushErr }
-func (m *mockGit) Stash() error                          { m.stashCalls++; return m.stashErr }
+func (m *mockGit) Stash() (bool, error)                  { m.stashCalls++; return m.stashErr == nil, m.stashErr }
 func (m *mockGit) StashPop() error                       { m.stashPopCalls++; return m.stashPopErr }
 func (m *mockGit) DiffFromRemote(_ string) (bool, error) { return m.diffFromRemote, m.diffErr }
 
@@ -1287,6 +1302,52 @@ func TestSpecCompletion(t *testing.T) {
 		}
 		if agent.calls != 2 {
 			t.Errorf("expected 2 agent calls (error_max_turns never triggers completion), got %d", agent.calls)
+		}
+	})
+
+	t.Run("dirty worktree prevents success no-commit spec completion", func(t *testing.T) {
+		agent := &mockAgent{
+			events: []claude.Event{claude.ResultEvent(0.10, 1.0, "success")},
+		}
+		git := &mockGit{
+			branch:             "feat/spec",
+			lastCommitSequence: []string{"h0", "h1", "h2", "h2", "h2"},
+			dirtySequence:      []bool{false, false, false, true},
+		}
+		cfg := defaultTestConfig()
+		cfg.Build.MaxIterations = 2
+
+		ch := make(chan LogEntry, 32)
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		lp.Events = ch
+
+		err := lp.Run(context.Background(), ModeBuild, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		close(ch)
+
+		var gotDone, gotSpecComplete, gotDirtyNotice bool
+		for e := range ch {
+			switch e.Kind {
+			case LogDone:
+				gotDone = true
+			case LogSpecComplete:
+				gotSpecComplete = true
+			case LogInfo:
+				if strings.Contains(e.Message, "uncommitted changes after iteration") {
+					gotDirtyNotice = true
+				}
+			}
+		}
+		if !gotDone {
+			t.Error("expected LogDone at max iterations")
+		}
+		if gotSpecComplete {
+			t.Error("should not emit LogSpecComplete while worktree is dirty")
+		}
+		if !gotDirtyNotice {
+			t.Error("expected dirty-worktree completion notice")
 		}
 	})
 }

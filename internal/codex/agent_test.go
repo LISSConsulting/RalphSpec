@@ -46,10 +46,13 @@ func TestBuildArgs(t *testing.T) {
 	agent := &Agent{}
 	args := agent.buildArgs("test prompt", claude.RunOptions{Dir: "/tmp/project", Model: "gpt-5"})
 
-	for _, want := range []string{"exec", "--json", "--full-auto", "--cd", "/tmp/project", "--model", "gpt-5", "test prompt"} {
+	for _, want := range []string{"exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--cd", "/tmp/project", "--model", "gpt-5", "test prompt"} {
 		if !containsArg(args, want) {
 			t.Fatalf("args %v missing %q", args, want)
 		}
+	}
+	if containsArg(args, "--full-auto") {
+		t.Fatalf("args %v should not use --full-auto because it still applies Codex sandbox constraints", args)
 	}
 }
 

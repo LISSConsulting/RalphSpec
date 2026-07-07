@@ -60,7 +60,7 @@
 ### Implementation for User Story 1
 
 - [X] T012 [US1] Implement Codex JSONL event translation in `internal/codex/parser.go`
-- [X] T013 [US1] Implement the `codex exec --json --full-auto --cd` runner in `internal/codex/agent.go`
+- [X] T013 [US1] Implement the `codex exec --json --dangerously-bypass-approvals-and-sandbox --cd` runner in `internal/codex/agent.go`
 - [X] T014 [US1] Wire the Codex adapter into supported single-run paths in `cmd/ralph/execute.go`
 - [X] T015 [US1] Emit effective-agent metadata in live loop output from `internal/loop/loop.go` and `cmd/ralph/format.go`
 

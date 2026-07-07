@@ -28,7 +28,7 @@ type GitOps interface {
 	HasRemoteBranch(branch string) bool
 	Pull(branch string) error
 	Push(branch string) error
-	Stash() error
+	Stash() (bool, error)
 	StashPop() error
 	LastCommit() (string, error)
 	DiffFromRemote(branch string) (bool, error)
@@ -113,7 +113,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 		default:
 		}
 
-		cost, subtype, commitsProduced, iterErr := l.iteration(ctx, i, maxIter, prompt, branch)
+		cost, subtype, commitsProduced, dirty, iterErr := l.iteration(ctx, i, maxIter, prompt, branch)
 		if iterErr != nil {
 			return fmt.Errorf("loop: iteration %d: %w", i, iterErr)
 		}
@@ -121,7 +121,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 
 		// Spec completion detection: two-signal check — previous iteration
 		// reported "success" and this iteration produced no new commits.
-		if prevSubtype == "success" && !commitsProduced {
+		if prevSubtype == "success" && !commitsProduced && !dirty {
 			if l.Roam {
 				l.emit(LogEntry{
 					Kind:      LogSweepComplete,
@@ -139,7 +139,16 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 			}
 			return nil
 		}
-		prevSubtype = subtype
+		if dirty {
+			l.emit(LogEntry{
+				Kind:    LogInfo,
+				Message: "Worktree has uncommitted changes after iteration; not treating agent success as spec completion",
+				Agent:   l.agentName(),
+			})
+			prevSubtype = ""
+		} else {
+			prevSubtype = subtype
+		}
 
 		// Run post-iteration hook (e.g., test-gated rollback from Regent)
 		if l.PostIteration != nil {
@@ -178,7 +187,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 	return nil
 }
 
-func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch string) (cost float64, subtype string, commitsProduced bool, err error) {
+func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch string) (cost float64, subtype string, commitsProduced bool, dirty bool, err error) {
 	l.emit(LogEntry{
 		Kind:      LogIterStart,
 		Message:   fmt.Sprintf("── iteration %d ──", n),
@@ -191,7 +200,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 	// Stash uncommitted changes before pulling
 	stashed, err := l.stashIfDirty()
 	if err != nil {
-		return 0, "", false, err
+		return 0, "", false, false, err
 	}
 
 	// Pull latest from remote (skip if no remote tracking branch yet)
@@ -238,7 +247,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		Dir:                   l.Dir,
 	})
 	if agentErr != nil {
-		return 0, "", false, fmt.Errorf("start %s: %w", l.agentName(), agentErr)
+		return 0, "", false, false, fmt.Errorf("start %s: %w", l.agentName(), agentErr)
 	}
 
 	// Drain events
@@ -299,8 +308,12 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 	// Detect whether Claude produced new commits during this iteration.
 	headAfter, _ := l.Git.LastCommit()
 	commitsProduced = headBefore != headAfter
+	dirty, dirtyErr := l.Git.HasUncommittedChanges()
+	if dirtyErr != nil {
+		return cost, subtype, commitsProduced, false, fmt.Errorf("check changes after %s: %w", l.agentName(), dirtyErr)
+	}
 
-	return cost, subtype, commitsProduced, nil
+	return cost, subtype, commitsProduced, dirty, nil
 }
 
 func (l *Loop) stashIfDirty() (bool, error) {
@@ -314,10 +327,11 @@ func (l *Loop) stashIfDirty() (bool, error) {
 			Message: "Stashing uncommitted changes",
 			Agent:   l.agentName(),
 		})
-		if stashErr := l.Git.Stash(); stashErr != nil {
+		created, stashErr := l.Git.Stash()
+		if stashErr != nil {
 			return false, fmt.Errorf("stash: %w", stashErr)
 		}
-		return true, nil
+		return created, nil
 	}
 	return false, nil
 }

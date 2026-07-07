@@ -13,14 +13,14 @@
 
 ## R-002: Codex Runtime Strategy
 
-**Decision**: Launch Codex with `codex exec --json --full-auto --cd <dir>` and optional `--model <model>`, then translate JSONL events into Ralph's shared event model.
+**Decision**: Launch Codex with `codex exec --json --dangerously-bypass-approvals-and-sandbox --cd <dir>` and optional `--model <model>`, then translate JSONL events into Ralph's shared event model.
 
 **Rationale**: The installed Codex CLI exposes a non-interactive `exec` mode with structured JSON output, which matches Ralph's loop architecture.
 
 **Alternatives considered**:
 - Interactive `codex` mode
 - Direct API integration
-- Disabling sandbox/approvals with the dangerous bypass flag
+- Using `--full-auto`, which still applies Codex sandbox constraints and can block autonomous implementation work
 
 ## R-003: Interface Reuse vs Rename
 

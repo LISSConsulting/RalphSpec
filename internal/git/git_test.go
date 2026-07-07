@@ -116,8 +116,12 @@ func TestStashAndPop(t *testing.T) {
 		t.Fatalf("git add failed: %s (%v)", out, err)
 	}
 
-	if err := r.Stash(); err != nil {
+	created, err := r.Stash()
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected stash entry to be created")
 	}
 
 	// File should be gone from working tree
@@ -137,12 +141,37 @@ func TestStashAndPop(t *testing.T) {
 	}
 }
 
+func TestStashUntrackedOnlyDoesNotCreateEntry(t *testing.T) {
+	dir := initTestRepo(t)
+	r := NewRunner(dir)
+
+	untrackedPath := filepath.Join(dir, "untracked.txt")
+	if err := os.WriteFile(untrackedPath, []byte("stash me"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := r.Stash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Fatal("expected no stash entry for untracked-only changes")
+	}
+	if _, err := os.Stat(untrackedPath); err != nil {
+		t.Fatalf("expected untracked file to remain in worktree: %v", err)
+	}
+}
+
 func TestStashNoChanges(t *testing.T) {
 	dir := initTestRepo(t)
 	r := NewRunner(dir)
 	// Repo is clean — Stash should succeed without error.
-	if err := r.Stash(); err != nil {
+	created, err := r.Stash()
+	if err != nil {
 		t.Fatalf("Stash() on clean repo returned unexpected error: %v", err)
+	}
+	if created {
+		t.Fatal("expected no stash entry for clean repo")
 	}
 }
 
@@ -468,7 +497,7 @@ func TestErrorPaths(t *testing.T) {
 	})
 
 	t.Run("Stash", func(t *testing.T) {
-		err := r.Stash()
+		_, err := r.Stash()
 		if err == nil {
 			t.Fatal("expected error")
 		}

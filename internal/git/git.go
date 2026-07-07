@@ -68,18 +68,22 @@ func (r *Runner) Push(branch string) error {
 	return nil
 }
 
-// Stash saves uncommitted changes to the stash.
-// Returns nil when there are no changes to stash ("No local changes to save").
-func (r *Runner) Stash() error {
-	_, err := r.run("stash", "push", "-m", "ralph-pre-pull-stash")
+// Stash saves tracked uncommitted changes to the stash.
+// It returns false when no stash entry was created, such as an untracked-only
+// dirty tree. Ralph must not pop a stash in that case or it may pop an older one.
+func (r *Runner) Stash() (bool, error) {
+	out, err := r.run("stash", "push", "-m", "ralph-pre-pull-stash")
 	if err != nil {
 		// Some git versions exit non-zero when there is nothing to stash.
 		if strings.Contains(err.Error(), "No local changes to save") {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("git stash: %w", err)
+		return false, fmt.Errorf("git stash: %w", err)
 	}
-	return nil
+	if strings.Contains(out, "No local changes to save") {
+		return false, nil
+	}
+	return true, nil
 }
 
 // StashPop restores the most recent stash entry.
