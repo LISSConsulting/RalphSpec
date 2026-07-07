@@ -33,6 +33,9 @@ var (
 	writeStyle = lipgloss.NewStyle().
 			Foreground(colorGreen)
 
+	searchStyle = lipgloss.NewStyle().
+			Foreground(colorOrange)
+
 	bashStyle = lipgloss.NewStyle().
 			Foreground(colorYellow)
 
@@ -66,12 +69,20 @@ func singleLine(s string) string {
 // toolIcon returns the emoji icon for a given tool name.
 func toolIcon(toolName string) string {
 	switch toolName {
-	case "Read", "read_file", "Glob", "Grep":
-		return "📖"
+	case "Read", "read_file":
+		return "📄"
+	case "Glob":
+		return "🗂"
+	case "Grep":
+		return "🔎"
 	case "Write", "write_file", "Edit", "NotebookEdit":
-		return "✏️"
-	case "Bash", "PowerShell", "Command Prompt":
-		return "🔧"
+		return "✎"
+	case "PowerShell":
+		return "❯"
+	case "Bash":
+		return "$"
+	case "Command Prompt":
+		return ">"
 	case "WebFetch", "WebSearch":
 		return "🌐"
 	case "Task":
@@ -84,8 +95,10 @@ func toolIcon(toolName string) string {
 // toolStyle returns the lipgloss style for a given tool name.
 func toolStyle(toolName string) lipgloss.Style {
 	switch toolName {
-	case "Read", "read_file", "Glob", "Grep":
+	case "Read", "read_file":
 		return readStyle
+	case "Glob", "Grep":
+		return searchStyle
 	case "Write", "write_file", "Edit", "NotebookEdit":
 		return writeStyle
 	case "Bash", "PowerShell", "Command Prompt":

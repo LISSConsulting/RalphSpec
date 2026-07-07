@@ -60,7 +60,7 @@ func TestRenderLogLine_AllKinds(t *testing.T) {
 		{
 			name:     "LogToolUse",
 			entry:    loop.LogEntry{Kind: loop.LogToolUse, Timestamp: now, ToolName: "Read", ToolInput: "main.go"},
-			contains: []string{"12:00:00", "📖", "Read", "main.go"},
+			contains: []string{"12:00:00", "📄", "Read", "main.go"},
 		},
 		{
 			name:     "LogToolUse long name truncated",
