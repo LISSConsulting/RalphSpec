@@ -32,5 +32,8 @@ func (f lineFormatter) format(entry loop.LogEntry) string {
 	if entry.Kind == loop.LogRegent {
 		return fmt.Sprintf("[%s]  🛡️  Regent: %s%s", ts, agentPrefix, entry.Message)
 	}
+	if entry.Kind == loop.LogToolUse && entry.ToolName != "" {
+		return fmt.Sprintf("[%s]  %s%s", ts, agentPrefix, tui.FormatToolUse(entry.ToolName, entry.ToolInput))
+	}
 	return fmt.Sprintf("[%s]  %s%s", ts, agentPrefix, entry.Message)
 }

@@ -9,6 +9,27 @@ import (
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
 )
 
+const toolNameColumnWidth = len("PowerShell")
+
+// FormatToolUse renders the plain, aligned tool action used by terminal logs.
+func FormatToolUse(toolName, toolInput string) string {
+	displayName := displayToolName(toolName)
+	if len(displayName) > 14 {
+		displayName = displayName[:13] + "…"
+	}
+	if len(displayName) < toolNameColumnWidth {
+		displayName += strings.Repeat(" ", toolNameColumnWidth-len(displayName))
+	}
+	return fmt.Sprintf("%s %s", displayName, singleLine(toolInput))
+}
+
+func displayToolName(toolName string) string {
+	if toolName == "Command Prompt" {
+		return "Cmd"
+	}
+	return toolName
+}
+
 // Theme holds accent-color-derived styles for the multi-panel TUI.
 // Non-accent styles (toolIcon, toolStyle, color vars) are package-level
 // and shared with the existing single-panel TUI via styles.go.
@@ -81,13 +102,10 @@ func (t Theme) RenderLogLine(entry loop.LogEntry, width int) string {
 	case loop.LogToolUse:
 		icon := toolIcon(entry.ToolName)
 		style := toolStyle(entry.ToolName)
-		displayName := entry.ToolName
-		if len(displayName) > 14 {
-			displayName = displayName[:13] + "…"
-		}
-		name := style.Render(displayName)
-		input := singleLine(entry.ToolInput)
-		maxInput := width - 18 - len(displayName)
+		toolUse := FormatToolUse(entry.ToolName, entry.ToolInput)
+		name, input, _ := strings.Cut(toolUse, " ")
+		name = style.Render(name)
+		maxInput := width - 18 - len(name)
 		if maxInput < 20 {
 			maxInput = 20
 		}

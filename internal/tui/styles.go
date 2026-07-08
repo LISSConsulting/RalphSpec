@@ -81,7 +81,7 @@ func toolIcon(toolName string) string {
 		return "❯"
 	case "Bash":
 		return "$"
-	case "Command Prompt":
+	case "Command Prompt", "Cmd":
 		return ">"
 	case "WebFetch", "WebSearch":
 		return "🌐"
@@ -101,7 +101,7 @@ func toolStyle(toolName string) lipgloss.Style {
 		return searchStyle
 	case "Write", "write_file", "Edit", "NotebookEdit":
 		return writeStyle
-	case "Bash", "PowerShell", "Command Prompt":
+	case "Bash", "PowerShell", "Command Prompt", "Cmd":
 		return bashStyle
 	default:
 		return infoStyle

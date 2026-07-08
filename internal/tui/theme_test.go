@@ -176,22 +176,35 @@ func TestRenderLogLine_NewlinesStripped(t *testing.T) {
 	}
 }
 
-func TestRenderLogLine_ToolNameNotPadded(t *testing.T) {
+func TestRenderLogLine_ToolNamePadded(t *testing.T) {
 	th := NewTheme("")
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
-	rendered := th.RenderLogLine(loop.LogEntry{
-		Kind:      loop.LogToolUse,
-		Timestamp: now,
-		ToolName:  "PowerShell",
-		ToolInput: "Get-ChildItem",
-	}, 120)
-
-	if !strings.Contains(rendered, "PowerShell Get-ChildItem") {
-		t.Fatalf("expected compact tool rendering, got %q", rendered)
+	tests := []struct {
+		name      string
+		toolName  string
+		toolInput string
+		want      string
+	}{
+		{name: "PowerShell", toolName: "PowerShell", toolInput: "Get-Item .", want: "PowerShell Get-Item ."},
+		{name: "Edit", toolName: "Edit", toolInput: `C:\Temp\bob.txt`, want: `Edit       C:\Temp\bob.txt`},
+		{name: "Write", toolName: "Write", toolInput: `C:\Windows\system32\drivers\etc\hosts`, want: `Write      C:\Windows\system32\drivers\etc\hosts`},
+		{name: "Grep", toolName: "Grep", toolInput: "stop*", want: "Grep       stop*"},
+		{name: "Cmd alias", toolName: "Command Prompt", toolInput: "dir", want: "Cmd        dir"},
 	}
-	if strings.Contains(rendered, "PowerShell  ") {
-		t.Fatalf("tool name should not be padded, got %q", rendered)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rendered := th.RenderLogLine(loop.LogEntry{
+				Kind:      loop.LogToolUse,
+				Timestamp: now,
+				ToolName:  tt.toolName,
+				ToolInput: tt.toolInput,
+			}, 160)
+			if !strings.Contains(rendered, tt.want) {
+				t.Fatalf("expected aligned tool rendering %q, got %q", tt.want, rendered)
+			}
+		})
 	}
 }
 

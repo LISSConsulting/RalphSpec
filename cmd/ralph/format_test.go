@@ -29,13 +29,14 @@ func TestLineFormatter_PlainMode(t *testing.T) {
 			want: "[14:23:01]  starting iteration 3",
 		},
 		{
-			name: "tool use entry — no special prefix",
+			name: "tool use entry — aligned tool name",
 			entry: loop.LogEntry{
 				Kind:      loop.LogToolUse,
 				Timestamp: ts,
-				Message:   "📖  read_file      app/main.go",
+				ToolName:  "Edit",
+				ToolInput: `C:\Temp\bob.txt`,
 			},
-			want: "[14:23:01]  📖  read_file      app/main.go",
+			want: `[14:23:01]  Edit       C:\Temp\bob.txt`,
 		},
 		{
 			name: "regent entry — shield prefix",
@@ -103,6 +104,31 @@ func TestLineFormatter_PlainMode(t *testing.T) {
 			}
 			if strings.Contains(got, "\x1b[") {
 				t.Errorf("plain mode should not contain ANSI escapes: %q", got)
+			}
+		})
+	}
+}
+
+func TestLineFormatter_PlainMode_ToolUseAlignment(t *testing.T) {
+	ts := time.Date(2026, 2, 23, 14, 23, 1, 0, time.UTC)
+	f := lineFormatter{color: false}
+
+	tests := []struct {
+		name  string
+		entry loop.LogEntry
+		want  string
+	}{
+		{name: "PowerShell", entry: loop.LogEntry{Kind: loop.LogToolUse, Timestamp: ts, ToolName: "PowerShell", ToolInput: "Get-Item ."}, want: "[14:23:01]  PowerShell Get-Item ."},
+		{name: "Edit", entry: loop.LogEntry{Kind: loop.LogToolUse, Timestamp: ts, ToolName: "Edit", ToolInput: `C:\Temp\bob.txt`}, want: `[14:23:01]  Edit       C:\Temp\bob.txt`},
+		{name: "Write", entry: loop.LogEntry{Kind: loop.LogToolUse, Timestamp: ts, ToolName: "Write", ToolInput: `C:\Windows\system32\drivers\etc\hosts`}, want: `[14:23:01]  Write      C:\Windows\system32\drivers\etc\hosts`},
+		{name: "Grep", entry: loop.LogEntry{Kind: loop.LogToolUse, Timestamp: ts, ToolName: "Grep", ToolInput: "stop*"}, want: "[14:23:01]  Grep       stop*"},
+		{name: "Cmd", entry: loop.LogEntry{Kind: loop.LogToolUse, Timestamp: ts, ToolName: "Cmd", ToolInput: "dir"}, want: "[14:23:01]  Cmd        dir"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := f.format(tt.entry); got != tt.want {
+				t.Fatalf("format() = %q, want %q", got, tt.want)
 			}
 		})
 	}

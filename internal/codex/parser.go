@@ -306,7 +306,7 @@ func commandToolName(command string) string {
 		return "Bash"
 	}
 	if launcher == "cmd" || launcher == "cmd.exe" {
-		return "Command Prompt"
+		return "Cmd"
 	}
 	if runtime.GOOS == "windows" {
 		return "PowerShell"

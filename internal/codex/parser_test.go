@@ -173,7 +173,7 @@ func TestCommandToolNameInfersLauncher(t *testing.T) {
 		{
 			name: "cmd launcher",
 			in:   `cmd.exe /C dir`,
-			want: "Command Prompt",
+			want: "Cmd",
 		},
 	}
 
