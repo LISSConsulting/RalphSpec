@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
@@ -21,6 +22,7 @@ type mockAgent struct {
 	calls      int
 	lastPrompt string // captures the prompt passed to the most recent Run() call
 	lastOpts   claude.RunOptions
+	onRun      func()
 }
 
 func (m *mockAgent) Run(_ context.Context, prompt string, opts claude.RunOptions) (<-chan claude.Event, error) {
@@ -29,6 +31,9 @@ func (m *mockAgent) Run(_ context.Context, prompt string, opts claude.RunOptions
 	m.lastOpts = opts
 	if m.err != nil {
 		return nil, m.err
+	}
+	if m.onRun != nil {
+		m.onRun()
 	}
 	ch := make(chan claude.Event, len(m.events))
 	for _, ev := range m.events {
@@ -291,6 +296,39 @@ func TestRunCurrentBranchError(t *testing.T) {
 }
 
 func TestIteration(t *testing.T) {
+	t.Run("uses elapsed wall time when agent omits result duration", func(t *testing.T) {
+		start := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+		now := start
+		var completed LogEntry
+		agent := &mockAgent{
+			events: []claude.Event{claude.ResultEvent(0.10, 0, "success")},
+			onRun: func() {
+				now = start.Add(2500 * time.Millisecond)
+			},
+		}
+		git := &mockGit{branch: "main", lastCommit: "abc test"}
+		cfg := defaultTestConfig()
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		lp.now = func() time.Time { return now }
+		lp.NotificationHook = func(entry LogEntry) {
+			if entry.Kind == LogIterComplete {
+				completed = entry
+			}
+		}
+
+		_, _, _, _, err := lp.iteration(context.Background(), 1, 1, "prompt", "main")
+		if err != nil {
+			t.Fatalf("iteration() returned error: %v", err)
+		}
+		if completed.Duration != 2.5 {
+			t.Fatalf("Duration = %.1f, want 2.5", completed.Duration)
+		}
+		if !strings.Contains(completed.Message, "2.5s") {
+			t.Fatalf("completion message should include fallback duration, got %q", completed.Message)
+		}
+	})
+
 	t.Run("pulls before running claude", func(t *testing.T) {
 		agent := &mockAgent{
 			events: []claude.Event{claude.ResultEvent(0.10, 1.0, "success")},

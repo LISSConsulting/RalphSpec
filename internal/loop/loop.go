@@ -49,6 +49,7 @@ type Loop struct {
 	Spec             string          // active spec name for prompt augmentation (empty = no augmentation)
 	SpecDir          string          // active spec directory for prompt augmentation
 	Focus            string          // constrain roam to a specific topic (empty = no constraint)
+	now              func() time.Time
 }
 
 // Run executes the loop in the given mode. It runs iterations until the
@@ -239,6 +240,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		Agent:   l.agentName(),
 		Message: fmt.Sprintf("Running %s...", l.agentName()),
 	})
+	agentStarted := l.nowTime()
 	events, agentErr := l.Agent.Run(ctx, prompt, claude.RunOptions{
 		Model:                 l.agentModel(),
 		MaxTurns:              l.agentMaxTurns(),
@@ -271,7 +273,14 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		case claude.EventResult:
 			cost = ev.CostUSD
 			subtype = ev.Subtype
-			msg := fmt.Sprintf("Iteration %d complete — $%.2f — %.1fs", n, ev.CostUSD, ev.Duration)
+			duration := ev.Duration
+			if duration <= 0 {
+				duration = l.nowTime().Sub(agentStarted).Seconds()
+				if duration < 0 {
+					duration = 0
+				}
+			}
+			msg := fmt.Sprintf("Iteration %d complete — $%.2f — %.1fs", n, ev.CostUSD, duration)
 			if ev.Subtype != "" {
 				msg += fmt.Sprintf(" — %s", ev.Subtype)
 			}
@@ -281,7 +290,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 				Agent:     l.agentName(),
 				Iteration: n,
 				CostUSD:   ev.CostUSD,
-				Duration:  ev.Duration,
+				Duration:  duration,
 				Subtype:   ev.Subtype,
 			})
 		case claude.EventError:
@@ -379,7 +388,7 @@ func (l *Loop) pushIfNeeded(branch string) error {
 // always called regardless of the TUI/log path.
 func (l *Loop) emit(entry LogEntry) {
 	if entry.Timestamp.IsZero() {
-		entry.Timestamp = time.Now()
+		entry.Timestamp = l.nowTime()
 	}
 	if l.NotificationHook != nil {
 		l.NotificationHook(entry)
@@ -397,6 +406,13 @@ func (l *Loop) emit(entry LogEntry) {
 	}
 	ts := entry.Timestamp.Format("15:04:05")
 	_, _ = fmt.Fprintf(w, "[%s]  %s\n", ts, entry.Message)
+}
+
+func (l *Loop) nowTime() time.Time {
+	if l.now != nil {
+		return l.now()
+	}
+	return time.Now()
 }
 
 func (l *Loop) modeConfig(mode Mode) (promptFile string, maxIter int) {
