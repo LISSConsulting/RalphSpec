@@ -5,7 +5,7 @@
 
 ## Summary
 
-Complete Codex support by making Codex a first-class selectable agent across every Ralph path that delegates to an AI coding agent, including command-line loops, smart runs, dashboard-started runs, worktree/parallel orchestration, mixed-role workflows, status surfaces, run history, and documentation. The technical approach is to retain the existing Go CLI architecture, extend shared agent resolution and metadata propagation, replace direct Claude construction in advanced paths with configured agent factories, and add regression coverage for both Codex and non-Codex behavior.
+Complete Codex support by making Codex a first-class selectable agent across every Ralph path that delegates to an AI coding agent, including command-line loops, roam runs, dashboard-started runs, worktree/parallel orchestration, mixed-role workflows, status surfaces, run history, and documentation. The technical approach is to retain the existing Go CLI architecture, extend shared agent resolution and metadata propagation, replace direct Claude construction in advanced paths with configured agent factories, and add regression coverage for both Codex and non-Codex behavior.
 
 ## Technical Context
 
@@ -17,7 +17,7 @@ Complete Codex support by making Codex a first-class selectable agent across eve
 **Project Type**: Single Go CLI/TUI application  
 **Performance Goals**: Agent selection and availability checks add no noticeable delay to non-Codex runs; dashboard and status updates remain responsive during concurrent agent sessions  
 **Constraints**: Preserve opt-in behavior, avoid silent fallback, keep concurrent work isolated, avoid unnecessary dependencies, preserve existing Claude behavior, support Windows paths and process handling  
-**Scale/Scope**: All Ralph workflows that delegate agent work, including main loop commands, smart runs, dashboard actions, worktree/parallel orchestration, mixed-role workflows, live status, historical records, and documentation
+**Scale/Scope**: All Ralph workflows that delegate agent work, including main loop commands, roam runs, dashboard actions, worktree/parallel orchestration, mixed-role workflows, live status, historical records, and documentation
 
 ## Constitution Check
 
@@ -51,7 +51,7 @@ specs/011-codex-support/
 ```text
 cmd/ralph/
 ├── commands.go          # CLI flags and command entry points
-├── execute.go           # agent resolution, loop setup, smart run, speckit invocation
+├── execute.go           # agent resolution, loop setup, run flow, speckit invocation
 └── *_test.go            # command and execution behavior tests
 
 internal/config/

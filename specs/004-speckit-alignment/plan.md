@@ -76,7 +76,7 @@ cmd/ralph/
 ├── wiring.go            # MINOR: adapt to new spec.List() return shape
 └── ...                  # Other files unchanged
 
-PLAN.md                  # MODIFY: update for spec kit directory awareness
+ROAM.md                  # MODIFY: update for roam mode directory awareness
 BUILD.md                 # MODIFY: update for spec kit directory awareness
 ```
 

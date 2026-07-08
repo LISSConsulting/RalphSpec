@@ -18,12 +18,12 @@ func TestEmitToChannel(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, _ := setupTestLoop(t, agent, git, cfg)
 	lp.Events = ch
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,12 +69,12 @@ func TestEmitToChannelWithToolUse(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, _ := setupTestLoop(t, agent, git, cfg)
 	lp.Events = ch
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,12 +104,12 @@ func TestEmitFallsBackToWriter(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, buf := setupTestLoop(t, agent, git, cfg)
 	// Events is nil — should fall back to Log writer
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestEmitFallsBackToWriter(t *testing.T) {
 	if output == "" {
 		t.Error("expected output written to Log writer when Events is nil")
 	}
-	if !strings.Contains(output, "Starting plan loop") {
+	if !strings.Contains(output, "Starting build loop") {
 		t.Error("expected log to contain starting message")
 	}
 }
@@ -130,12 +130,12 @@ func TestEmitDoesNotWriteToLogWhenChannelSet(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, buf := setupTestLoop(t, agent, git, cfg)
 	lp.Events = ch
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,12 +239,12 @@ func TestEmitBranchAndIterationInEvents(t *testing.T) {
 	}
 	git := &mockGit{branch: "feat/tui", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, _ := setupTestLoop(t, agent, git, cfg)
 	lp.Events = ch
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

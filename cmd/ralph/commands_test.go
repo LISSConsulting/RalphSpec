@@ -111,10 +111,10 @@ func TestFormatScaffoldResult(t *testing.T) {
 		},
 		{
 			name:    "multiple files created",
-			created: []string{"ralph.toml", "PLAN.md", "BUILD.md", "specs/"},
+			created: []string{"ralph.toml", "ROAM.md", "BUILD.md", "specs/"},
 			contains: []string{
 				"Created ralph.toml",
-				"Created PLAN.md",
+				"Created ROAM.md",
 				"Created BUILD.md",
 				"Created specs/",
 			},
@@ -271,7 +271,7 @@ func TestLoopCmdStructure(t *testing.T) {
 		loopSubs[sub.Name()] = true
 	}
 
-	for _, want := range []string{"plan", "build", "run"} {
+	for _, want := range []string{"build", "run"} {
 		if !loopSubs[want] {
 			t.Errorf("loop: missing subcommand %q", want)
 		}
@@ -293,7 +293,7 @@ func TestLoopCmdsHaveMaxFlag(t *testing.T) {
 		t.Fatal("missing loop subcommand")
 	}
 
-	for _, name := range []string{"plan", "build", "run"} {
+	for _, name := range []string{"build", "run"} {
 		t.Run(name, func(t *testing.T) {
 			for _, sub := range lp.Commands() {
 				if sub.Name() == name {
@@ -332,7 +332,7 @@ func TestLoopCmdsHaveAgentFlag(t *testing.T) {
 		t.Fatal("missing loop subcommand")
 	}
 
-	for _, name := range []string{"plan", "build", "run"} {
+	for _, name := range []string{"build", "run"} {
 		t.Run(name, func(t *testing.T) {
 			for _, sub := range loopCmd.Commands() {
 				if sub.Name() == name {
@@ -391,7 +391,7 @@ func TestInitCmdExecution(t *testing.T) {
 	}
 
 	// Verify core files were created
-	for _, name := range []string{"ralph.toml", "PLAN.md", "BUILD.md"} {
+	for _, name := range []string{"ralph.toml", "ROAM.md", "BUILD.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("expected %s to exist: %v", name, err)
 		}
@@ -424,7 +424,7 @@ func TestInitCmd_ScaffoldError(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"PLAN.md":  "x",
+		"ROAM.md":  "x",
 		"BUILD.md": "x",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
@@ -539,24 +539,7 @@ func TestSpecListCmd_SpecsNotDir(t *testing.T) {
 	}
 }
 
-// ---- RunE handler tests for loop plan / build / run commands ----
-
-func TestLoopPlanCmdRunE_NoConfig(t *testing.T) {
-	t.Chdir(t.TempDir())
-
-	cmd := loopPlanCmd()
-	if err := cmd.Flags().Set("max", "1"); err != nil {
-		t.Fatalf("set --max flag: %v", err)
-	}
-
-	err := cmd.RunE(cmd, nil)
-	if err == nil {
-		t.Fatal("expected error when ralph.toml not found")
-	}
-	if !strings.Contains(err.Error(), "ralph.toml") {
-		t.Errorf("error should mention ralph.toml, got: %v", err)
-	}
-}
+// ---- RunE handler tests for loop build / run commands ----
 
 func TestLoopBuildCmdRunE_NoConfig(t *testing.T) {
 	t.Chdir(t.TempDir())

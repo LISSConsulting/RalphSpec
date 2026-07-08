@@ -15,14 +15,15 @@ danger_skip_permissions = true
 [codex]
 model = ""
 
-[plan]
-prompt_file = "PLAN.md"
-max_iterations = 3
-
 [build]
 prompt_file = "BUILD.md"
 max_iterations = 20  # 0 = unlimited
-roam = false  # roam freely across the codebase (--roam flag overrides)
+
+[roam]
+enabled = false  # roam freely across the codebase (--roam flag overrides)
+prompt_file = "ROAM.md"
+max_iterations = 20  # 0 = unlimited
+focus = ""
 
 [git]
 auto_pull_rebase = true

@@ -110,7 +110,7 @@ cmd/ralph/
 
 ### R4: --roam and --spec Mutual Exclusion
 
-**Decision**: Validate in `executeLoop()` / `executeSmartRun()` before building the loop. If both `--roam` and resolved spec (via `--spec` flag) are set, return a clear error. The `--roam` flag is checked at the command level, not in `Loop.Run()`.
+**Decision**: Validate in `executeLoop()` / `executeRun()` before building the loop. If both `--roam` and resolved spec (via `--spec` flag) are set, return a clear error. The `--roam` flag is checked at the command level, not in `Loop.Run()`.
 
 **Rationale**: FR-010 requires a clear error when both are provided. Validating early (before TUI/Regent setup) gives the user immediate feedback. The loop itself doesn't need to know about the flag conflict — it receives either roam=true or a spec, never both.
 
@@ -124,7 +124,7 @@ cmd/ralph/
 1. `Run()` skips spec resolution (no single-spec prompt augmentation).
 2. `Run()` injects a sweep directive into the prompt instead.
 3. Completion detection emits `LogSweepComplete` instead of `LogSpecComplete`.
-4. The sweep branch is created in `executeLoop()` / `executeSmartRun()` before `Loop.Run()` is called.
+4. The sweep branch is created in `executeLoop()` / `executeRun()` before `Loop.Run()` is called.
 
 **Rationale**: The sweep branch creation is a pre-flight step (git operation) that belongs in the command layer. The loop itself just needs to know "I'm in roam mode" for prompt augmentation and log entry selection. Keeping git branch creation outside the loop avoids adding branch-creation logic to the loop package.
 

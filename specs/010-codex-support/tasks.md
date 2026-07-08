@@ -48,7 +48,7 @@
 
 **Goal**: A developer can run Codex in Ralph's supported single-run `plan`, `build`, and `run` flows with the same supervision and git lifecycle as Claude.
 
-**Independent Test**: Configure or override a run to use Codex, execute `ralph loop plan --agent codex --no-tui` or `ralph build --agent codex --no-tui`, and verify the session starts, streams structured progress, and completes through the normal loop flow.
+**Independent Test**: Configure or override a run to use Codex, execute `ralph loop build --agent codex --no-tui` or `ralph build --agent codex --no-tui`, and verify the session starts, streams structured progress, and completes through the normal loop flow.
 
 ### Tests for User Story 1
 

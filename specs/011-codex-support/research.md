@@ -2,7 +2,7 @@
 
 ## R-001: Unified Agent Resolution
 
-**Decision**: Use one shared agent resolution path for command-line loops, smart runs, dashboard-started runs, worktree orchestration, and mixed-role workflows. The effective agent is resolved from an explicit per-run selection first, then the saved project default, then the existing default agent.
+**Decision**: Use one shared agent resolution path for command-line loops, roam runs, dashboard-started runs, worktree orchestration, and mixed-role workflows. The effective agent is resolved from an explicit per-run selection first, then the saved project default, then the existing default agent.
 
 **Rationale**: Current support already accepts `claude` and `codex` in configuration and CLI overrides, but advanced paths can bypass that resolution. A shared resolver prevents drift, preserves opt-in behavior, and gives every workflow the same validation and error semantics.
 

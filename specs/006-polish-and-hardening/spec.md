@@ -73,7 +73,7 @@ Targeted test additions for functions with addressable coverage gaps. NOT covera
 
 ### F4: Extract Common Setup in execute.go
 
-**Problem:** `executeLoop()` (lines 23-119) and `executeSmartRun()` (lines 122-213) share ~65 lines of identical setup: config load, validation, working dir, signal context, git runner, roam computation, loop struct init, spec resolution, store init.
+**Problem:** `executeLoop()` and `executeRun()` share setup: config load, validation, working dir, signal context, git runner, roam computation, loop struct init, spec resolution, store init.
 
 **Solution:** Extract into a `setupLoop(noTUI, roam bool) (*loopSetup, error)` helper returning a struct with all initialized components. Both functions call it then diverge only on their run logic.
 

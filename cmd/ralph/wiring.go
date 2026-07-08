@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -333,7 +332,7 @@ func (lc *loopController) IsRunning() bool {
 	return lc.cancel != nil
 }
 
-// StartLoop starts a loop in the given mode ("build", "plan", or "smart").
+// StartLoop starts a loop in the given mode ("build" or "roam").
 // A no-op if a loop is already running.
 func (lc *loopController) StartLoop(mode string) {
 	lc.mu.Lock()
@@ -420,22 +419,11 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 		}
 	}()
 
-	var runErr error
-	switch mode {
-	case "plan":
-		runErr = lp.Run(ctx, loop.ModePlan, 0)
-	case "smart":
-		planPath := filepath.Join(lc.dir, "CHRONICLE.md")
-		info, statErr := os.Stat(planPath)
-		if needsPlanPhase(info, statErr) {
-			runErr = lp.Run(ctx, loop.ModePlan, 0)
-		}
-		if runErr == nil {
-			runErr = lp.Run(ctx, loop.ModeBuild, 0)
-		}
-	default: // "build"
-		runErr = lp.Run(ctx, loop.ModeBuild, 0)
+	if mode == "roam" {
+		lp.Roam = true
+		lp.Focus = lc.cfg.Roam.Focus
 	}
+	runErr := lp.Run(ctx, loop.ModeBuild, 0)
 
 	close(loopEvents)
 	<-forwardDone
@@ -460,7 +448,7 @@ func (lc *loopController) emitLoopError(err error) {
 }
 
 // runDashboard launches the TUI in idle (dashboard) state with no loop running.
-// The user can press b/p/R to start a loop and x to stop it.
+// The user can press b/R to start a loop and x to stop it.
 // When [worktree] is enabled in config, an Orchestrator is created and wired
 // into the TUI so the W/x/M/D keybinds become active.
 func runDashboard(ctx context.Context, cfg *config.Config, dir string, sw store.Writer, sr store.Reader) error {

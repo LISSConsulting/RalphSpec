@@ -158,9 +158,7 @@ name = ""
 func TestLoadDetectsProjectName(t *testing.T) {
 	t.Run("auto-detects from pyproject.toml when project.name empty", func(t *testing.T) {
 		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "ralph.toml"), `[plan]
-prompt_file = "PLAN.md"
-[build]
+		writeFile(t, filepath.Join(dir, "ralph.toml"), `[build]
 prompt_file = "BUILD.md"
 `)
 		writeFile(t, filepath.Join(dir, "pyproject.toml"), `[project]
@@ -180,8 +178,6 @@ name = "detected-python"
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, "ralph.toml"), `[project]
 name = "explicit-name"
-[plan]
-prompt_file = "PLAN.md"
 [build]
 prompt_file = "BUILD.md"
 `)
@@ -203,9 +199,7 @@ name = "should-not-appear"
 		if err := os.Mkdir(base, 0755); err != nil {
 			t.Fatal(err)
 		}
-		writeFile(t, filepath.Join(base, "ralph.toml"), `[plan]
-prompt_file = "PLAN.md"
-[build]
+		writeFile(t, filepath.Join(base, "ralph.toml"), `[build]
 prompt_file = "BUILD.md"
 `)
 

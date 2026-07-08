@@ -122,7 +122,7 @@ The Regent supervisor monitors all active worktree agents, not just the primary 
 **Worktree Lifecycle (P1)**:
 
 - **FR-001**: Ralph MUST detect whether worktrunk (`wt`) is available on PATH before attempting any worktree operation, and emit a clear error with installation instructions if missing.
-- **FR-002**: The `--worktree` (short: `-w`) flag MUST be available on `ralph build`, `ralph loop build`, `ralph loop plan`, and `ralph loop run` commands.
+- **FR-002**: The `--worktree` (short: `-w`) flag MUST be available on `ralph build`, `ralph loop build`, and `ralph loop run` commands.
 - **FR-003**: When `--worktree` is set, Ralph MUST create a new worktree via worktrunk (`wt switch -c <branch>`) and run the loop inside that worktree's directory.
 - **FR-004**: If a worktree for the target branch already exists, Ralph MUST switch to it (`wt switch <branch>`) instead of failing.
 - **FR-005**: The loop's working directory (`Loop.Dir`) MUST be set to the worktree path, not the original repository root, so all file operations (prompt reading, spec resolution) happen inside the worktree.

@@ -24,7 +24,7 @@ model = ""
 Examples:
 
 ```powershell
-ralph loop plan --agent codex --no-tui
+ralph loop build --agent codex --no-tui
 ralph build --agent codex --no-tui
 ralph loop run --agent codex --no-tui
 ```

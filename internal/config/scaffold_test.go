@@ -18,7 +18,7 @@ func TestScaffoldProject(t *testing.T) {
 
 		expected := []string{
 			filepath.Join(dir, "ralph.toml"),
-			filepath.Join(dir, "PLAN.md"),
+			filepath.Join(dir, "ROAM.md"),
 			filepath.Join(dir, "BUILD.md"),
 			filepath.Join(dir, "specs"),
 			filepath.Join(dir, ".gitignore"),
@@ -82,10 +82,10 @@ func TestScaffoldProject(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Should update ralph.toml and create the missing files (PLAN.md, specs/, .gitignore, CHRONICLE.md).
+		// Should update ralph.toml and create the missing files (ROAM.md, specs/, .gitignore, CHRONICLE.md).
 		expected := []string{
 			filepath.Join(dir, "ralph.toml"),
-			filepath.Join(dir, "PLAN.md"),
+			filepath.Join(dir, "ROAM.md"),
 			filepath.Join(dir, "specs"),
 			filepath.Join(dir, ".gitignore"),
 			filepath.Join(dir, "CHRONICLE.md"),
@@ -112,7 +112,7 @@ func TestScaffoldProject(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{`name = "Custom"`, `[agent]`, `type = "claude"`, `max_iterations = 0`, `focus = ""`, `[worktree]`, `max_parallel = 5`} {
+		for _, want := range []string{`name = "Custom"`, `[agent]`, `type = "claude"`, `[roam]`, `prompt_file = "ROAM.md"`, `focus = ""`, `[worktree]`, `max_parallel = 5`} {
 			if !strings.Contains(string(updatedConfig), want) {
 				t.Errorf("updated ralph.toml should contain %q", want)
 			}
@@ -141,7 +141,7 @@ func TestScaffoldProject(t *testing.T) {
 
 		// Create all files including complete ralph.toml and .gitignore with the required entry.
 		writeCompleteRalphTOML(t, dir)
-		if err := os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("x"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "ROAM.md"), []byte("x"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, "BUILD.md"), []byte("x"), 0644); err != nil {
@@ -201,7 +201,7 @@ func TestScaffoldProject(t *testing.T) {
 		// Pre-create all files so only .gitignore append logic runs.
 		writeCompleteRalphTOML(t, dir)
 		for name, content := range map[string]string{
-			"PLAN.md":      "x",
+			"ROAM.md":      "x",
 			"BUILD.md":     "x",
 			"CHRONICLE.md": "x",
 		} {
@@ -241,7 +241,7 @@ func TestScaffoldProject(t *testing.T) {
 		dir := t.TempDir()
 		// Pre-create all files including .gitignore with the entry already present
 		writeCompleteRalphTOML(t, dir)
-		if err := os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("x"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "ROAM.md"), []byte("x"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, "BUILD.md"), []byte("x"), 0644); err != nil {
@@ -271,7 +271,7 @@ func TestScaffoldProject(t *testing.T) {
 		// Pre-create all files that scaffold writes before .gitignore
 		writeCompleteRalphTOML(t, dir)
 		for name, content := range map[string]string{
-			"PLAN.md":  "x",
+			"ROAM.md":  "x",
 			"BUILD.md": "x",
 		} {
 			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
@@ -295,20 +295,20 @@ func TestScaffoldProject(t *testing.T) {
 		}
 	})
 
-	t.Run("plan prompt template contains key instructions", func(t *testing.T) {
+	t.Run("roam prompt template contains key instructions", func(t *testing.T) {
 		dir := t.TempDir()
 		if _, err := ScaffoldProject(dir); err != nil {
 			t.Fatal(err)
 		}
 
-		content, err := os.ReadFile(filepath.Join(dir, "PLAN.md"))
+		content, err := os.ReadFile(filepath.Join(dir, "ROAM.md"))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		for _, want := range []string{"specs/", "CHRONICLE.md", "planning phase"} {
+		for _, want := range []string{"Roam mode", "CHRONICLE.md", "one cohesive improvement"} {
 			if !strings.Contains(string(content), want) {
-				t.Errorf("plan prompt should contain %q", want)
+				t.Errorf("roam prompt should contain %q", want)
 			}
 		}
 	})

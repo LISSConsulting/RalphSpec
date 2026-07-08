@@ -73,11 +73,11 @@
 
 - [x] T008 [P] [US2] Add `Roam bool` field to `BuildConfig` in `internal/config/config.go` with TOML tag `toml:"roam"`. Update `Defaults()` to set `Roam: false`. No validation needed (bool field, default false). Update `InitFile()` template to include `roam = false` under `[build]` with comment `# enable cross-spec improvement sweep`.
 
-- [x] T009 [US2] Add `--roam` flag to `buildCmd()`, `loopBuildCmd()`, and `loopRunCmd()` in `cmd/ralph/commands.go`. Pattern: `cmd.Flags().Bool("roam", false, "enable cross-spec improvement sweep")`. Parse with `roam, _ := cmd.Flags().GetBool("roam")`. Pass `roam` as a new parameter to `executeLoop()` and `executeSmartRun()`.
+- [x] T009 [US2] Add `--roam` flag to `buildCmd()`, `loopBuildCmd()`, and `loopRunCmd()` in `cmd/ralph/commands.go`. Pattern: `cmd.Flags().Bool("roam", false, "enable cross-spec improvement sweep")`. Parse with `roam, _ := cmd.Flags().GetBool("roam")`. Pass `roam` as a new parameter to `executeLoop()` and `executeRun()`.
 
 - [x] T010 [US2] Update `executeLoop()` signature in `cmd/ralph/execute.go` to accept `roam bool` parameter. Add roam pre-flight before building the Loop struct: (a) resolve effective roam: `effectiveRoam := roam || cfg.Build.Roam`, (b) if `effectiveRoam`, create sweep branch using `gitRunner.CreateAndCheckout()` with date-based naming (`sweep/YYYY-MM-DD`) and collision retry (append `-2` through `-10`), (c) log branch creation via `fmt.Fprintf`, (d) set `lp.Roam = true` on the Loop struct. Add `Roam bool` field to the `Loop` struct in `internal/loop/loop.go`.
 
-- [x] T011 [US2] Update `executeSmartRun()` signature in `cmd/ralph/execute.go` to accept `roam bool` parameter. Apply the same roam pre-flight logic as `executeLoop()` (sweep branch creation, set `lp.Roam`). In the `smartRunFn` closure, roam applies only to the build phase — `lp.Run(ctx, loop.ModeBuild, maxOverride)` uses the Loop's Roam field; the plan phase call is unchanged.
+- [x] T011 [US2] Update `executeRun()` signature in `cmd/ralph/execute.go` to accept `roam bool` parameter. Apply the same roam pre-flight logic as `executeLoop()` and set `lp.Roam`; `lp.Run(ctx, loop.ModeBuild, maxOverride)` uses the Loop's Roam field.
 
 - [x] T012 [US2] Update completion detection in `Run()` in `internal/loop/loop.go` to emit `LogSweepComplete` when `l.Roam` is true (instead of `LogSpecComplete`). Change the completion block from T004: `if l.Roam { l.emit(LogEntry{Kind: LogSweepComplete, Message: fmt.Sprintf("Sweep complete (%d iterations, $%.2f)", i, totalCost)}) } else { l.emit(LogEntry{Kind: LogSpecComplete, ...}) }`.
 
@@ -105,7 +105,7 @@
 
 - [x] T016 [US3] Implement prompt augmentation in `Run()` in `internal/loop/loop.go`. After reading the prompt file and before the iteration loop, append a `"\n\n## Spec Context\n\n"` section to the prompt string. Three cases: (a) if `l.Roam`: append sweep directive — `"You are performing an improvement sweep across ALL specs in specs/.\nCheck each spec directory for gaps, missing tests, code quality issues, and fixes.\nThis is not feature development — focus on quality improvements and consistency."`, (b) else if `l.Spec != ""`: append spec-boundary directive — `fmt.Sprintf("You are working on spec %q in directory %s/.\nFocus ONLY on work defined in this spec. Do not modify code outside this spec's scope.\nRead spec.md, plan.md, and tasks.md from this directory for your work items.", l.Spec, l.SpecDir)`, (c) else: no augmentation (raw prompt, backwards-compatible).
 
-- [x] T017 [US3] Wire spec resolution into `executeLoop()` and `executeSmartRun()` in `cmd/ralph/execute.go`. When `!effectiveRoam`: call `spec.Resolve(dir, "", branch)` where `branch` comes from `gitRunner.CurrentBranch()`. If resolution succeeds, set `lp.Spec = activeSpec.Name` and `lp.SpecDir = activeSpec.Dir`. If resolution fails (no matching spec, main branch, etc.), silently continue — spec augmentation is optional for backwards compatibility. Import `"github.com/LISSConsulting/RalphSpec/internal/spec"` in execute.go.
+- [x] T017 [US3] Wire spec resolution into `executeLoop()` and `executeRun()` in `cmd/ralph/execute.go`. When `!effectiveRoam`: call `spec.Resolve(dir, "", branch)` where `branch` comes from `gitRunner.CurrentBranch()`. If resolution succeeds, set `lp.Spec = activeSpec.Name` and `lp.SpecDir = activeSpec.Dir`. If resolution fails (no matching spec, main branch, etc.), silently continue — spec augmentation is optional for backwards compatibility. Import `"github.com/LISSConsulting/RalphSpec/internal/spec"` in execute.go.
 
 **Checkpoint**: `go test ./...` passes. Prompt includes spec context when on a feature branch, sweep directive when roaming, nothing on main/master.
 
@@ -209,4 +209,4 @@ T009 → T010 → T011 → T012 → T013
 - `mockGit` and `mockAgent` enhancements (T002) are prerequisites for all loop tests
 - Completion detection (US1) is the MVP — delivers immediate value without roam or prompt changes
 - The `--spec` flag does not exist on build commands today. The `--roam + --spec` conflict guard (FR-010) is a defensive check for future compatibility — currently unreachable.
-- `Loop.Roam` is set by the command layer (executeLoop/executeSmartRun), not by the loop itself
+- `Loop.Roam` is set by the command layer (executeLoop/executeRun), not by the loop itself

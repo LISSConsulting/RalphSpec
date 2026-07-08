@@ -447,7 +447,7 @@ func TestHandleIterationSelected_WithReader(t *testing.T) {
 
 func TestUpdate_Key_LoopControl_NoController(t *testing.T) {
 	// Without a controller, b/p/R/x should be no-ops.
-	keys := []string{"b", "p", "R", "x"}
+	keys := []string{"b", "R", "x"}
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
 			m := newTestModel()
@@ -479,23 +479,7 @@ func TestUpdate_Key_Build_StartsLoop(t *testing.T) {
 	}
 }
 
-func TestUpdate_Key_Plan_StartsLoop(t *testing.T) {
-	ctrl := &mockLoopController{}
-	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl)
-
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
-	m2 := updated.(Model)
-
-	if ctrl.startCalled != "plan" {
-		t.Errorf("expected StartLoop(\"plan\"), got %q", ctrl.startCalled)
-	}
-	if m2.loopState != StatePlanning {
-		t.Errorf("expected StatePlanning, got %v", m2.loopState)
-	}
-}
-
-func TestUpdate_Key_SmartRun_StartsLoop(t *testing.T) {
+func TestUpdate_Key_Roam_StartsLoop(t *testing.T) {
 	ctrl := &mockLoopController{}
 	ch := make(chan loop.LogEntry, 1)
 	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl)
@@ -503,8 +487,8 @@ func TestUpdate_Key_SmartRun_StartsLoop(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
 	m2 := updated.(Model)
 
-	if ctrl.startCalled != "smart" {
-		t.Errorf("expected StartLoop(\"smart\"), got %q", ctrl.startCalled)
+	if ctrl.startCalled != "roam" {
+		t.Errorf("expected StartLoop(\"roam\"), got %q", ctrl.startCalled)
 	}
 	if m2.loopState != StateBuilding {
 		t.Errorf("expected StateBuilding, got %v", m2.loopState)

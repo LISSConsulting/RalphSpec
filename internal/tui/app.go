@@ -311,20 +311,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.controller.StartLoop("build")
 		}
 		return m, nil
-	case "p":
-		if m.controller != nil && !m.controller.IsRunning() {
-			if m.loopState.CanTransitionTo(StatePlanning) {
-				m.loopState = StatePlanning
-			}
-			m.controller.StartLoop("plan")
-		}
-		return m, nil
 	case "R":
 		if m.controller != nil && !m.controller.IsRunning() {
 			if m.loopState.CanTransitionTo(StateBuilding) {
 				m.loopState = StateBuilding
 			}
-			m.controller.StartLoop("smart")
+			m.controller.StartLoop("roam")
 		}
 		return m, nil
 	case "x":
@@ -689,8 +681,7 @@ func (m Model) renderHelp() string {
 		"",
 		"  LOOP CONTROL  (dashboard mode only)",
 		"    b           Start build loop",
-		"    p           Start plan loop",
-		"    R           Smart run (auto plan+build)",
+		"    R           Start roam loop",
 		"    x           Stop loop immediately",
 		"",
 		"  SPECS PANEL",

@@ -71,7 +71,7 @@ A developer runs `ralph build` (default, no `--roam`). When Ralph launches Claud
 - What happens when Ralph is on `main`/`master` branch WITHOUT `--roam`? No spec resolution — Ralph runs as today with no spec-boundary enforcement (backwards-compatible).
 - What happens when `--roam` is used with `--max` and the budget runs out mid-sweep? Ralph stops at the iteration limit — `--max` is a global budget that always wins.
 - What happens when Claude reports `"error_max_turns"` instead of `"success"`? This is NOT spec/sweep completion — Ralph continues iterating (Claude hit its internal turn limit but may have more work).
-- What happens when `--roam` is combined with `ralph run` (smart run)? Roam applies to the build phase. The plan phase completes first, then build begins with roam behavior.
+- What happens when `--roam` is combined with `ralph loop run`? Ralph uses ROAM.md for the loop run instead of BUILD.md.
 - What happens when `--roam` is combined with `--spec`? Ralph errors with a clear message — explicit spec override and roaming are mutually exclusive.
 - What happens when the sweep branch creation fails (e.g., develop doesn't exist)? Ralph logs the error and exits. The developer must ensure a valid base branch.
 - What happens when the sweep branch already exists? Ralph appends a sequence number or reuses the existing branch.

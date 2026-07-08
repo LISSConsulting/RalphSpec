@@ -32,7 +32,7 @@ The initial release supports `--agent <name>` on single-run loop entry points:
 |---------|------------------|----------|
 | `ralph build --agent <name>` | `claude`, `codex` | Overrides project default for one build run |
 | `ralph loop build --agent <name>` | `claude`, `codex` | Overrides project default for one build run |
-| `ralph loop plan --agent <name>` | `claude`, `codex` | Overrides project default for one plan run |
+| `ralph loop build --agent <name>` | `claude`, `codex` | Overrides project default for one loop run |
 | `ralph loop run --agent <name>` | `claude`, `codex` | Uses the selected agent for the composed single-run plan/build flow |
 
 ## Unsupported Combinations

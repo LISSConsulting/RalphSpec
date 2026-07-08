@@ -73,7 +73,7 @@ Removed 2 worktrees (008-notifications, 009-api-cleanup).
 
 ## Modified Commands
 
-### `ralph build` / `ralph loop build` / `ralph loop plan` / `ralph loop run`
+### `ralph build` / `ralph loop build` / `ralph loop run`
 
 **New flag**: `--worktree` / `-w`
 

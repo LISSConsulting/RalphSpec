@@ -58,7 +58,7 @@
 ### Implementation for User Story 1
 
 - [x] T019 [US1] Add `--worktree` / `-w` bool flag to buildCmd, loopBuildCmd, loopPlanCmd, loopRunCmd in cmd/ralph/commands.go — pass value through to execute functions
-- [x] T020 [US1] Add worktree flag parameter to executeLoop() and executeSmartRun() signatures in cmd/ralph/execute.go; thread through from command handlers
+- [x] T020 [US1] Add worktree flag parameter to executeLoop() and executeRun() signatures in cmd/ralph/execute.go; thread through from command handlers
 - [x] T021 [US1] Implement worktree setup in executeLoop() in cmd/ralph/execute.go — when --worktree is set: create worktree.NewRunner(dir), call Detect() (error if missing), call Switch(branch, create=true), override loop Dir to worktree path, log worktree creation; on completion log worktree path and branch
 - [x] T022 [US1] Add branch-name prefix to non-TUI log output in cmd/ralph/format.go — when running in worktree mode, prepend `[branch]` to each log line for distinguishability (FR-010)
 - [x] T023 [US1] Add tests for --worktree flag handling in cmd/ralph/execute_test.go — table-driven: worktree-created-and-loop-runs, wt-not-found-errors, existing-worktree-reused, log-lines-include-branch-prefix

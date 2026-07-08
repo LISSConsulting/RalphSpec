@@ -17,7 +17,7 @@
 
 - [x] T008: Create `loopSetup` struct and `setupLoop(noTUI, roam bool) (*loopSetup, error)` in `cmd/ralph/execute.go` extracting shared config load, validation, working dir, signal context, git runner, roam, loop init, spec resolution, store init
 - [x] T009: Rewrite `executeLoop()` to call `setupLoop()` then diverge on run logic only
-- [x] T010: Rewrite `executeSmartRun()` to call `setupLoop()` then diverge on smart run logic only
+- [x] T010: Rewrite `executeRun()` to call `setupLoop()` then diverge on run logic only
 - [x] T011: Verify all existing `execute_test.go` tests pass unchanged
 
 ## Phase 4: Test Coverage Easy Wins

@@ -94,7 +94,7 @@ cmd/ralph/execute.go                    internal/loop/loop.go
 │  ├─ set Loop.Spec   │                │  │   ├─ run Claude      │
 │  └─ call Run()      │                │  │   ├─ compare HEAD    │
 │                     │                │  │   └─ return subtype  │
-│ executeSmartRun()   │                │  ├─ completion check    │
+│ executeRun()        │                │  ├─ completion check    │
 │  └─ same roam logic │                │  │   (prevSubtype +     │
 └─────────────────────┘                │  │    commitsProduced)  │
                                        │  └─ emit LogSpec/Sweep  │
@@ -107,6 +107,6 @@ internal/git/git.go                    │      Complete           │
 internal/config/config.go
 ┌─────────────────────┐
 │ BuildConfig         │
-│  └─ Roam bool       │──read by──► executeLoop(), executeSmartRun()
+│  └─ RoamConfig      │──read by──► executeLoop(), executeRun()
 └─────────────────────┘
 ```

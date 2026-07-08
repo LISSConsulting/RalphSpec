@@ -46,13 +46,13 @@
 
 ## Phase 3: User Story 1 - Use Codex Across All Ralph Workflows (Priority: P1) MVP
 
-**Goal**: Codex works anywhere Ralph's main user-facing workflows delegate to an AI coding agent, including CLI loops, smart runs, dashboard-started runs, and automated build loops.
+**Goal**: Codex works anywhere Ralph's main user-facing workflows delegate to an AI coding agent, including CLI loops, roam runs, dashboard-started runs, and automated build loops.
 
 **Independent Test**: Select Codex and complete each main user-facing Ralph workflow that delegates agent work, verifying the workflow starts, reports progress, completes, and records Codex without requiring a different agent.
 
 ### Tests for User Story 1
 
-- [X] T014 [P] [US1] Add CLI contract tests for `--agent codex` across plan, build, smart run, and top-level build paths in `cmd/ralph/commands_test.go`
+- [X] T014 [P] [US1] Add CLI contract tests for `--agent codex` across build, roam/run, and top-level build paths in `cmd/ralph/commands_test.go`
 - [X] T015 [P] [US1] Add execution tests for Codex plan/build/smart-run metadata and no silent fallback in `cmd/ralph/execute_test.go`
 - [X] T016 [P] [US1] Add loop event attribution tests for Codex-backed runs in `internal/loop/loop_test.go`
 - [X] T017 [P] [US1] Add TUI main workflow launch tests for Codex-selected dashboard actions in `internal/tui/app_test.go`
@@ -176,7 +176,7 @@
 ## Parallel Example: User Story 1
 
 ```text
-Task: "T014 Add CLI contract tests for --agent codex across plan, build, smart run, and top-level build paths in cmd/ralph/commands_test.go"
+Task: "T014 Add CLI contract tests for --agent codex across build, roam/run, and top-level build paths in cmd/ralph/commands_test.go"
 Task: "T016 Add loop event attribution tests for Codex-backed runs in internal/loop/loop_test.go"
 Task: "T017 Add TUI main workflow launch tests for Codex-selected dashboard actions in internal/tui/app_test.go"
 ```

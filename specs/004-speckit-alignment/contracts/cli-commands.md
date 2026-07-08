@@ -8,10 +8,10 @@
 ```
 ralph
 ├── specify <description>    # NEW — invokes /speckit.specify
-├── plan                     # REPURPOSED — invokes /speckit.plan (was: Claude loop plan mode)
+├── plan                     # REPURPOSED — invokes /speckit.plan
 ├── clarify                  # NEW — invokes /speckit.clarify
 ├── tasks                    # NEW — invokes /speckit.tasks
-├── run                      # REPURPOSED — invokes /speckit.implement (was: smart mode)
+├── run                      # REPURPOSED — invokes /speckit.implement
 ├── build [--max N]          # UNCHANGED — Claude loop build mode (also under loop)
 ├── status                   # UNCHANGED
 ├── init                     # UNCHANGED
@@ -19,9 +19,8 @@ ralph
 │   └── list                 # MODIFIED — directory-aware, artifact-presence status
 │                            # (spec new REMOVED)
 └── loop                     # NEW parent
-    ├── plan [--max N]       # MOVED — old ralph plan (Claude loop plan mode)
     ├── build [--max N]      # ALIAS — same as top-level build
-    └── run [--max N]        # MOVED — old ralph run (smart mode)
+    └── run [--max N]        # MOVED — autonomous loop run
 ```
 
 ## Speckit Commands
@@ -88,15 +87,6 @@ All speckit commands share these behaviors:
 
 ## Loop Commands (preserved behavior)
 
-### `ralph loop plan`
-
-| Field | Value |
-|-------|-------|
-| **Use** | `plan` (under `loop` parent) |
-| **Short** | Run Claude in plan mode (autonomous loop) |
-| **Flags** | `--max <N>`, `--no-tui` |
-| **Behavior** | Identical to old `ralph plan`: reads `config.Plan.PromptFile`, runs Claude loop with Regent supervision |
-
 ### `ralph loop build`
 
 | Field | Value |
@@ -111,9 +101,9 @@ All speckit commands share these behaviors:
 | Field | Value |
 |-------|-------|
 | **Use** | `run` (under `loop` parent) |
-| **Short** | Smart mode: plan if needed, then build (autonomous loop) |
+| **Short** | Run the autonomous build loop; use `--roam` for codebase-wide roaming |
 | **Flags** | `--max <N>`, `--no-tui` |
-| **Behavior** | Identical to old `ralph run` |
+| **Behavior** | Runs the same loop engine as build mode |
 
 ## Modified Commands
 

@@ -124,16 +124,16 @@ No spec resolved (backwards-compatible):
 
 ## R6: Config Integration
 
-**Decision**: Add `Roam bool` to `BuildConfig`. CLI `--roam` flag overrides config. Not added to `PlanConfig` (plan mode doesn't roam).
+**Decision**: Add dedicated roam configuration. CLI `--roam` flag overrides config.
 
-**Rationale**: Config-level default lets projects opt into roam permanently. CLI override gives per-invocation control. Plan mode is inherently single-spec.
+**Rationale**: Config-level default lets projects opt into roam permanently. CLI override gives per-invocation control. Roam has its own prompt file.
 
 **`ralph.toml` example**:
 ```toml
-[build]
-prompt_file = "BUILD.md"
+[roam]
+enabled = false  # default; set true for always-roam
+prompt_file = "ROAM.md"
 max_iterations = 10
-roam = false  # default; set true for always-roam
 ```
 
 **Validation**: `--roam` and `--spec` are mutually exclusive (FR-010). Checked in `executeLoop()` before TUI/Regent setup.

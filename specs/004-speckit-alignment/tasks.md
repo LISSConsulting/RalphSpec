@@ -60,16 +60,16 @@
 
 **Goal**: Move existing Claude loop commands under `ralph loop` parent, freeing `plan` and `run` for speckit.
 
-**Independent Test**: Verify `ralph loop plan`, `ralph loop build`, `ralph loop run` invoke the Claude loop identically to the old top-level commands.
+**Independent Test**: Verify `ralph loop build` and `ralph loop run` invoke the Claude loop identically to the old top-level commands.
 
 ### Implementation for User Story 4
 
 - [x] T013 [US4] Create loopCmd() parent command in `cmd/ralph/commands.go` — Use: "loop", Short: "Autonomous Claude loop commands"
-- [x] T014 [US4] Move existing planCmd(), buildCmd(), runCmd() function bodies into loopPlanCmd(), loopBuildCmd(), loopRunCmd() in `cmd/ralph/commands.go` — same RunE logic, same flags (--max, --no-tui)
-- [x] T015 [US4] Update rootCmd() in `cmd/ralph/main.go` — remove old top-level plan/run, register loopCmd with plan/build/run subcommands, keep top-level build as alias (call same executeLoop function), keep status/init/spec unchanged
-- [x] T016 [US4] Add tests verifying loop subcommand registration in `cmd/ralph/commands_test.go` — verify loopCmd has plan/build/run subcommands, verify top-level build still exists, verify old top-level plan/run are gone
+- [x] T014 [US4] Move existing buildCmd() and runCmd() loop bodies into loopBuildCmd() and loopRunCmd() in `cmd/ralph/commands.go` — same RunE logic, same flags (--max, --no-tui)
+- [x] T015 [US4] Update rootCmd() in `cmd/ralph/main.go` — remove old top-level plan/run loop behavior, register loopCmd with build/run subcommands, keep top-level build as alias (call same executeLoop function), keep status/init/spec unchanged
+- [x] T016 [US4] Add tests verifying loop subcommand registration in `cmd/ralph/commands_test.go` — verify loopCmd has build/run subcommands, verify top-level build still exists, verify old top-level plan/run loop commands are gone
 
-**Checkpoint**: `ralph loop plan`, `ralph loop build`, `ralph loop run` work. Top-level `ralph build` unchanged. Old `ralph plan` and `ralph run` are removed (not yet replaced by speckit).
+**Checkpoint**: `ralph loop build` and `ralph loop run` work. Top-level `ralph build` unchanged. Old loop-backed `ralph plan` and `ralph run` are removed (not yet replaced by speckit).
 
 ---
 
@@ -110,18 +110,18 @@
 
 ---
 
-## Phase 7: User Story 5 — PLAN.md and BUILD.md Update (Priority: P3)
+## Phase 7: User Story 5 — ROAM.md and BUILD.md Update (Priority: P3)
 
 **Goal**: Update autonomous loop prompt files to understand spec kit directory structure.
 
-**Independent Test**: Run `ralph loop plan` and verify the agent reads spec kit directories correctly.
+**Independent Test**: Run `ralph build --roam` and verify the agent reads spec kit directories correctly.
 
 ### Implementation for User Story 5
 
-- [x] T028 [P] [US5] Update PLAN.md — replace generic `specs/` scanning instruction with spec kit directory awareness: read `spec.md`, `plan.md`, `tasks.md` from each `specs/NNN-name/` directory; reference artifact-presence status model
+- [x] T028 [P] [US5] Update ROAM.md — replace generic `specs/` scanning instruction with spec kit directory awareness: read `spec.md`, `plan.md`, `tasks.md` from each `specs/NNN-name/` directory; reference artifact-presence status model
 - [x] T029 [P] [US5] Update BUILD.md — replace CHRONICLE.md-centric task picking with spec kit directory awareness: read `tasks.md` within active spec directory, reference `spec.md` and `plan.md` for context
 
-**Checkpoint**: Autonomous loop agents understand spec kit directory structure when invoked via `ralph loop plan/build`.
+**Checkpoint**: Autonomous loop agents understand spec kit directory structure when invoked via `ralph build --roam` or `ralph loop build`.
 
 ---
 
@@ -171,7 +171,7 @@ Phase 2 (Foundational)
 - **T007 + T008**: Both are test files, different test functions — can run in parallel
 - **T019 + T020**: Both are resolve_test.go functions, but different test cases — can be written in parallel
 - **T023 + T024**: Different speckit commands in same file — can be written in parallel
-- **T028 + T029**: PLAN.md and BUILD.md are independent files — can run in parallel
+- **T028 + T029**: ROAM.md and BUILD.md are independent files — can run in parallel
 - **US3 (Phase 5) + US5 (Phase 7)**: Touch completely different files — can run in parallel with each other (and with US4)
 
 ---

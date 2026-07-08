@@ -18,26 +18,7 @@ func loopCmd() *cobra.Command {
 		Use:   "loop",
 		Short: "Autonomous agent loop commands",
 	}
-	cmd.AddCommand(loopPlanCmd(), loopBuildCmd(), loopRunCmd())
-	return cmd
-}
-
-func loopPlanCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "plan",
-		Short: "Run an agent in plan mode",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			max, _ := cmd.Flags().GetInt("max")
-			agent, _ := cmd.Flags().GetString("agent")
-			noTUI, _ := cmd.Root().PersistentFlags().GetBool("no-tui")
-			noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
-			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeLoop(loop.ModePlan, max, noTUI, false, "", noColor, worktreeFlag, agent)
-		},
-	}
-	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
-	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
+	cmd.AddCommand(loopBuildCmd(), loopRunCmd())
 	return cmd
 }
 
@@ -67,7 +48,7 @@ func loopBuildCmd() *cobra.Command {
 func loopRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Smart mode: plan if needed, then build",
+		Short: "Run the agent loop; use --roam for codebase-wide roaming",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
 			agent, _ := cmd.Flags().GetString("agent")
@@ -76,7 +57,7 @@ func loopRunCmd() *cobra.Command {
 			roam, _ := cmd.Flags().GetBool("roam")
 			focus, _ := cmd.Flags().GetString("focus")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeSmartRun(max, noTUI, roam, focus, noColor, worktreeFlag, agent)
+			return executeRun(max, noTUI, roam, focus, noColor, worktreeFlag, agent)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")

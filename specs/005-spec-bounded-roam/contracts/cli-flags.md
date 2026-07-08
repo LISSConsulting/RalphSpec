@@ -8,7 +8,7 @@
 |------|------|---------|-------|
 | `--roam` | bool | false | `ralph build`, `ralph loop build`, `ralph loop run` |
 
-**Note**: `--roam` is NOT on `ralph loop plan` (plan mode is single-spec) or the speckit `ralph run` command (which delegates to Claude's `/speckit.implement`).
+**Note**: `--roam` is not on the speckit `ralph run` command, which delegates to Claude's `/speckit.implement`.
 
 ## Behavior Matrix
 
@@ -21,13 +21,14 @@
 | `ralph build --roam --max 10` | yes | — | Same as above, hard stop at 10 iterations |
 | `ralph build --roam --spec X` | — | — | ERROR: `--roam and --spec are mutually exclusive` |
 | `ralph loop build --roam` | yes | — | Same as `ralph build --roam` |
-| `ralph loop run --roam` | yes | — | Plan phase (if needed), then roam sweep in build phase |
+| `ralph loop run --roam` | yes | — | Roam using the dedicated ROAM.md prompt |
 
 ## Config Override
 
 ```toml
-[build]
-roam = false  # default; set true for always-roam
+[roam]
+enabled = false  # default; set true for always-roam
+prompt_file = "ROAM.md"
 ```
 
 CLI `--roam` flag takes precedence over config value.

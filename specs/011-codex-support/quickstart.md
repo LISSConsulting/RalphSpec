@@ -12,7 +12,7 @@ Expected result: Codex is installed and authenticated before Ralph starts a Code
 ## 2. Select Codex for One Run
 
 ```powershell
-ralph loop plan --agent codex --no-tui
+ralph loop build --agent codex --no-tui
 ralph build --agent codex --no-tui
 ralph loop run --agent codex --no-tui
 ```

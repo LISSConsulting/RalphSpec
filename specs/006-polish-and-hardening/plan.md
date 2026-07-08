@@ -78,7 +78,7 @@ No new packages. Changes touch `cmd/ralph/` (CLI wiring), `internal/tui/styles.g
       formatter lineFormatter
   }
   ```
-- `executeLoop()` and `executeSmartRun()` call `setupLoop()` then diverge on run logic only.
+- `executeLoop()` and `executeRun()` call `setupLoop()` then diverge on run logic only.
 - `executeDashboard()` extracts store init subset (or just calls `setupLoop` and ignores unused fields).
 
 ### Files

@@ -10,7 +10,7 @@ import (
 )
 
 // ScaffoldProject creates the full ralph project structure in the given
-// directory. It creates or updates ralph.toml, prompt files for plan and build
+// directory. It creates or updates ralph.toml, prompt files for build and roam
 // modes, the specs/ directory, .gitignore, and CHRONICLE.md. Prompt and
 // chronicle files that already exist are left untouched. Returns the list of
 // changed paths.
@@ -36,13 +36,13 @@ func ScaffoldProject(dir string) ([]string, error) {
 		}
 	}
 
-	// PLAN.md
-	planPath := filepath.Join(dir, "PLAN.md")
-	if _, err := os.Stat(planPath); os.IsNotExist(err) {
-		if writeErr := os.WriteFile(planPath, []byte(planPromptTemplate), 0644); writeErr != nil {
-			return created, fmt.Errorf("scaffold: write %s: %w", planPath, writeErr)
+	// ROAM.md
+	roamPath := filepath.Join(dir, "ROAM.md")
+	if _, err := os.Stat(roamPath); os.IsNotExist(err) {
+		if writeErr := os.WriteFile(roamPath, []byte(roamPromptTemplate), 0644); writeErr != nil {
+			return created, fmt.Errorf("scaffold: write %s: %w", roamPath, writeErr)
 		}
-		created = append(created, planPath)
+		created = append(created, roamPath)
 	}
 
 	// BUILD.md
@@ -124,14 +124,14 @@ var configScaffoldSections = []configScaffoldSection{
 	{name: "codex", entries: []configScaffoldEntry{
 		{key: "model", line: `model = ""`},
 	}},
-	{name: "plan", entries: []configScaffoldEntry{
-		{key: "prompt_file", line: `prompt_file = "PLAN.md"`},
-		{key: "max_iterations", line: `max_iterations = 3`},
-	}},
 	{name: "build", entries: []configScaffoldEntry{
 		{key: "prompt_file", line: `prompt_file = "BUILD.md"`},
 		{key: "max_iterations", line: `max_iterations = 0  # 0 = unlimited`},
-		{key: "roam", line: `roam = false        # roam freely across the codebase (--roam flag overrides)`},
+	}},
+	{name: "roam", entries: []configScaffoldEntry{
+		{key: "enabled", line: `enabled = false     # roam freely across the codebase (--roam flag overrides)`},
+		{key: "prompt_file", line: `prompt_file = "ROAM.md"`},
+		{key: "max_iterations", line: `max_iterations = 0  # 0 = unlimited`},
 		{key: "focus", line: `focus = ""          # constrain roam to a specific topic (--focus flag overrides)`},
 	}},
 	{name: "git", entries: []configScaffoldEntry{
@@ -310,14 +310,15 @@ func parseTopLevelSection(line string) (string, bool) {
 	return section, true
 }
 
-const planPromptTemplate = `Read the specs in ` + "`specs/`" + ` and study the codebase.
-Create or update ` + "`CHRONICLE.md`" + ` with:
+const roamPromptTemplate = `You are a roaming build agent. Your state file is ` + "`CHRONICLE.md`" + `.
 
-- A summary of current state (what exists, test coverage)
-- Remaining work organized by priority (highest-impact items first)
-- Key learnings and architectural decisions
+Roam mode is for codebase-wide improvement when no single active spec should constrain the work.
 
-Do NOT write application code — this is a planning phase only.
+1. Read ` + "`CHRONICLE.md`" + `, ` + "`specs/`" + `, and the codebase before editing.
+2. Hunt for high-leverage improvements: verified spec drift, bugs, failing or weak tests, stale docs, dead code, TODO/FIXME items, and simple maintainability wins.
+3. Search before assuming. Confirm each issue from source, tests, or docs before changing code.
+4. Make one cohesive improvement per iteration. Avoid broad rewrites and unrelated churn.
+5. Run the relevant tests, update ` + "`CHRONICLE.md`" + ` with findings or completed work, then commit with a descriptive message.
 `
 
 const buildPromptTemplate = `Read the specs in ` + "`specs/`" + ` and the implementation plan.

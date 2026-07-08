@@ -113,7 +113,7 @@ func setupTestLoop(t *testing.T, agent claude.Agent, git GitOps, cfg *config.Con
 	dir := t.TempDir()
 
 	// Write prompt files
-	if err := os.WriteFile(filepath.Join(dir, cfg.Plan.PromptFile), []byte("plan prompt"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, cfg.Roam.PromptFile), []byte("roam prompt"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, cfg.Build.PromptFile), []byte("build prompt"), 0644); err != nil {
@@ -131,16 +131,16 @@ func setupTestLoop(t *testing.T, agent claude.Agent, git GitOps, cfg *config.Con
 }
 
 func TestRun(t *testing.T) {
-	t.Run("plan mode runs configured iterations", func(t *testing.T) {
+	t.Run("build mode runs configured iterations", func(t *testing.T) {
 		agent := &mockAgent{
 			events: []claude.Event{claude.ResultEvent(0.10, 2.5, "success")},
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc123 initial"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 2
+		cfg.Build.MaxIterations = 2
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -179,13 +179,13 @@ func TestRun(t *testing.T) {
 		agent := &mockAgent{}
 		git := &mockGit{branch: "main"}
 		cfg := defaultTestConfig()
-		cfg.Plan.PromptFile = "nonexistent.md"
+		cfg.Build.PromptFile = "nonexistent.md"
 
 		dir := t.TempDir()
 		var buf bytes.Buffer
 		lp := &Loop{Agent: agent, Git: git, Config: cfg, Log: &buf, Dir: dir}
 
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err == nil {
 			t.Fatal("expected error for missing prompt file")
 		}
@@ -200,14 +200,14 @@ func TestRun(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc123 test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 100
+		cfg.Build.MaxIterations = 100
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // cancel immediately
 
-		err := lp.Run(ctx, ModePlan, 0)
+		err := lp.Run(ctx, ModeBuild, 0)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("expected context.Canceled, got %v", err)
 		}
@@ -220,10 +220,10 @@ func TestRun(t *testing.T) {
 		agent := &mockAgent{err: errors.New("agent failed")}
 		git := &mockGit{branch: "main"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err == nil {
 			t.Fatal("expected error from agent failure")
@@ -237,13 +237,13 @@ func TestRun(t *testing.T) {
 		agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0.05, 1.0, "success")}}
 		git := &mockGit{branch: "main", lastCommit: "abc123 initial"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 		cfg.Claude.Model = "opus"
 		cfg.Claude.MaxTurns = 7
 		cfg.Claude.DangerSkipPermissions = true
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -259,12 +259,12 @@ func TestRun(t *testing.T) {
 		agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0.05, 1.0, "success")}}
 		git := &mockGit{branch: "main", lastCommit: "abc123 initial"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 		cfg.Codex.Model = "gpt-5-codex"
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		lp.AgentType = config.AgentCodex
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -280,7 +280,7 @@ func TestRunCurrentBranchError(t *testing.T) {
 	cfg := defaultTestConfig()
 
 	lp, _ := setupTestLoop(t, agent, git, cfg)
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 
 	if err == nil {
 		t.Fatal("expected error when CurrentBranch fails")
@@ -298,10 +298,10 @@ func TestIteration(t *testing.T) {
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPullRebase = true
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -318,10 +318,10 @@ func TestIteration(t *testing.T) {
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPullRebase = false
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -337,10 +337,10 @@ func TestIteration(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", dirty: true, lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -359,10 +359,10 @@ func TestIteration(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", dirty: false, lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -386,10 +386,10 @@ func TestIteration(t *testing.T) {
 		}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPush = true
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -410,10 +410,10 @@ func TestIteration(t *testing.T) {
 		}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPush = true
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -434,10 +434,10 @@ func TestIteration(t *testing.T) {
 		}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPush = false
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -458,10 +458,10 @@ func TestLogOutput(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -484,10 +484,10 @@ func TestLogOutput(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -507,10 +507,10 @@ func TestLogOutput(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -530,10 +530,10 @@ func TestLogOutput(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -552,12 +552,12 @@ func TestTextEventInEventChannel(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, _ := setupTestLoop(t, agent, git, cfg)
 	lp.Events = ch
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -587,10 +587,10 @@ func TestSubtypeInLogOutput(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -605,10 +605,10 @@ func TestSubtypeInLogOutput(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -623,10 +623,10 @@ func TestSubtypeInLogOutput(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -648,12 +648,12 @@ func TestSubtypeInEventChannel(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, _ := setupTestLoop(t, agent, git, cfg)
 	lp.Events = ch
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -677,22 +677,12 @@ func TestSubtypeInEventChannel(t *testing.T) {
 
 func TestModeConfig(t *testing.T) {
 	cfg := defaultTestConfig()
-	cfg.Plan.PromptFile = "PLAN.md"
-	cfg.Plan.MaxIterations = 5
 	cfg.Build.PromptFile = "BUILD.md"
 	cfg.Build.MaxIterations = 10
+	cfg.Roam.PromptFile = "ROAM.md"
+	cfg.Roam.MaxIterations = 5
 
 	lp := &Loop{Config: cfg}
-
-	t.Run("plan mode", func(t *testing.T) {
-		file, max := lp.modeConfig(ModePlan)
-		if file != "PLAN.md" {
-			t.Errorf("expected PLAN.md, got %s", file)
-		}
-		if max != 5 {
-			t.Errorf("expected 5, got %d", max)
-		}
-	})
 
 	t.Run("build mode", func(t *testing.T) {
 		file, max := lp.modeConfig(ModeBuild)
@@ -701,6 +691,17 @@ func TestModeConfig(t *testing.T) {
 		}
 		if max != 10 {
 			t.Errorf("expected 10, got %d", max)
+		}
+	})
+
+	t.Run("roam mode", func(t *testing.T) {
+		lp.Roam = true
+		file, max := lp.modeConfig(ModeBuild)
+		if file != "ROAM.md" {
+			t.Errorf("expected ROAM.md, got %s", file)
+		}
+		if max != 5 {
+			t.Errorf("expected 5, got %d", max)
 		}
 	})
 }
@@ -750,13 +751,13 @@ func TestPostIteration(t *testing.T) {
 			lastCommitSequence: []string{"h0", "h1", "h2", "h2", "h3", "h3", "h4"},
 		}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 3
+		cfg.Build.MaxIterations = 3
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		var hookCalls int
 		lp.PostIteration = func() { hookCalls++ }
 
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -771,12 +772,12 @@ func TestPostIteration(t *testing.T) {
 		}
 		git := &mockGit{branch: "main", lastCommit: "abc test"}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		// PostIteration is nil by default
 
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -794,7 +795,7 @@ func TestPostIteration(t *testing.T) {
 		}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPush = true
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		var hookCalled bool
@@ -804,7 +805,7 @@ func TestPostIteration(t *testing.T) {
 			pushCountAtHook = git.pushCalls
 		}
 
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -825,14 +826,14 @@ func TestInitialCommitInEvent(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc123 initial"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 	cfg.Git.AutoPush = false // no push — commit must come from initial emit
 
 	ch := make(chan LogEntry, 32)
 	lp, _ := setupTestLoop(t, agent, git, cfg)
 	lp.Events = ch
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -882,10 +883,10 @@ func TestStashIfDirtyErrors(t *testing.T) {
 			dirtyErr: errors.New("git status failed"),
 		}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err == nil {
 			t.Fatal("expected error when HasUncommittedChanges fails")
@@ -903,10 +904,10 @@ func TestStashIfDirtyErrors(t *testing.T) {
 			stashErr: errors.New("stash failed"),
 		}
 		cfg := defaultTestConfig()
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err == nil {
 			t.Fatal("expected error when Stash fails")
@@ -929,10 +930,10 @@ func TestPushIfNeededErrors(t *testing.T) {
 		}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPush = true
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("DiffFromRemote error should not abort loop, got: %v", err)
@@ -956,10 +957,10 @@ func TestPushIfNeededErrors(t *testing.T) {
 		}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPush = true
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("LastCommit error should not abort loop, got: %v", err)
@@ -981,10 +982,10 @@ func TestPushIfNeededErrors(t *testing.T) {
 		}
 		cfg := defaultTestConfig()
 		cfg.Git.AutoPush = true
-		cfg.Plan.MaxIterations = 1
+		cfg.Build.MaxIterations = 1
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
-		err := lp.Run(context.Background(), ModePlan, 0)
+		err := lp.Run(context.Background(), ModeBuild, 0)
 
 		if err != nil {
 			t.Fatalf("push error should not abort loop, got: %v", err)
@@ -1006,10 +1007,10 @@ func TestIterationContinuesOnPullError(t *testing.T) {
 	}
 	cfg := defaultTestConfig()
 	cfg.Git.AutoPullRebase = true
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, buf := setupTestLoop(t, agent, git, cfg)
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 
 	// Pull error is logged but loop continues
 	if err != nil {
@@ -1034,10 +1035,10 @@ func TestIterationContinuesOnStashPopError(t *testing.T) {
 		stashPopErr: errors.New("stash pop conflict"),
 	}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	lp, buf := setupTestLoop(t, agent, git, cfg)
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 
 	// Stash pop error is logged but loop continues
 	if err != nil {
@@ -1058,10 +1059,10 @@ func TestEmitNilLog(t *testing.T) {
 	}
 	git := &mockGit{branch: "main", lastCommit: "abc test"}
 	cfg := defaultTestConfig()
-	cfg.Plan.MaxIterations = 1
+	cfg.Build.MaxIterations = 1
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, cfg.Plan.PromptFile), []byte("plan prompt"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, cfg.Roam.PromptFile), []byte("roam prompt"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, cfg.Build.PromptFile), []byte("build prompt"), 0644); err != nil {
@@ -1076,7 +1077,7 @@ func TestEmitNilLog(t *testing.T) {
 		// Log is nil, Events is nil — emit should use os.Stdout
 	}
 
-	err := lp.Run(context.Background(), ModePlan, 0)
+	err := lp.Run(context.Background(), ModeBuild, 0)
 	if err != nil {
 		t.Fatalf("nil Log should fall back to stdout without error, got: %v", err)
 	}
@@ -1406,10 +1407,10 @@ func TestAugmentPrompt(t *testing.T) {
 		wantUnchanged bool
 	}{
 		{
-			name:      "roam mode adds roam section",
-			prompt:    "base",
-			roam:      true,
-			wantParts: []string{"## Spec Context", "Roam mode"},
+			name:          "roam mode without focus returns prompt unchanged",
+			prompt:        "base",
+			roam:          true,
+			wantUnchanged: true,
 		},
 		{
 			name:      "spec set adds spec-boundary section",
@@ -1424,12 +1425,12 @@ func TestAugmentPrompt(t *testing.T) {
 			wantUnchanged: true,
 		},
 		{
-			name:      "roam takes precedence — roam section not spec section",
-			prompt:    "base",
-			spec:      "some-spec",
-			specDir:   "specs/some-spec",
-			roam:      true,
-			wantParts: []string{"Roam mode"},
+			name:          "roam takes precedence and suppresses spec section",
+			prompt:        "base",
+			spec:          "some-spec",
+			specDir:       "specs/some-spec",
+			roam:          true,
+			wantUnchanged: true,
 		},
 	}
 
@@ -1462,7 +1463,7 @@ func TestAugmentPromptFocus(t *testing.T) {
 			name:      "focus in roam mode",
 			roam:      true,
 			focus:     "UI/UX",
-			wantParts: []string{"Roam mode", "Focus your work on: UI/UX"},
+			wantParts: []string{"## Roam Focus", "Focus your work on: UI/UX"},
 		},
 		{
 			name:      "focus with spec",
@@ -1480,7 +1481,7 @@ func TestAugmentPromptFocus(t *testing.T) {
 			name:      "empty focus — no directive appended",
 			roam:      true,
 			focus:     "",
-			wantParts: []string{"Roam mode"},
+			wantParts: []string{"base"},
 		},
 	}
 	for _, tt := range tests {
@@ -1524,7 +1525,7 @@ func TestPromptAugmentationInRun(t *testing.T) {
 		}
 	})
 
-	t.Run("roam mode includes roam directive in prompt", func(t *testing.T) {
+	t.Run("roam mode uses roam prompt without extra spec context", func(t *testing.T) {
 		agent := &mockAgent{
 			events: []claude.Event{claude.ResultEvent(0.10, 1.0, "success")},
 		}
@@ -1538,11 +1539,11 @@ func TestPromptAugmentationInRun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(agent.lastPrompt, "## Spec Context") {
-			t.Errorf("prompt should contain Spec Context section in roam mode, got: %q", agent.lastPrompt)
+		if agent.lastPrompt != "roam prompt" {
+			t.Errorf("prompt should be the ROAM.md prompt, got: %q", agent.lastPrompt)
 		}
-		if !strings.Contains(agent.lastPrompt, "Roam mode") {
-			t.Errorf("prompt should contain roam directive in roam mode, got: %q", agent.lastPrompt)
+		if strings.Contains(agent.lastPrompt, "## Spec Context") {
+			t.Errorf("roam prompt should not get spec context appended, got: %q", agent.lastPrompt)
 		}
 	})
 

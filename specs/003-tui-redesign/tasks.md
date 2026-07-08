@@ -116,7 +116,7 @@
 
 ### Implementation
 
-- [x] T030 [US5] Add loop control keybindings to root model in `internal/tui/app.go` — handle `b` (start build), `x` (stop/cancel context), `p` (start plan), `R` (smart run) as global keys when not captured by focused panel; `b`/`p`/`R` only valid in StateIdle or StateFailed; `x` only valid in StateBuilding or StatePlanning; trigger LoopState transitions via `CanTransitionTo()`; emit appropriate signals (requestStop for `x`, new loop launch for `b`/`p`/`R`)
+- [x] T030 [US5] Add loop control keybindings to root model in `internal/tui/app.go` — handle `b` (start build), `x` (stop/cancel context), `R` (start roam) as global keys when not captured by focused panel; `b`/`R` only valid in StateIdle or StateFailed; `x` only valid in StateBuilding or StatePlanning; trigger LoopState transitions via `CanTransitionTo()`; emit appropriate signals (requestStop for `x`, new loop launch for `b`/`R`)
 - [x] T031 [US5] Update `cmd/ralph/wiring.go` to support TUI-initiated loop starts — expose a mechanism for the TUI to signal "start a new loop run" (e.g., a channel or callback passed to `tui.New()`); this enables dashboard mode where the TUI starts before the loop
 - [x] T032 [US5] Update footer hints for loop control in `internal/tui/panels/footer.go` — when StateIdle: show `b:build p:plan R:run`; when building/planning: show `x:stop`; add tests for each state
 - [x] T033 [US5] Add table-driven tests for all LoopState transitions triggered by key presses in `internal/tui/app_test.go` — test valid transitions (idle→building on `b`, building→failed on `x`) and invalid transitions (building→building on `b` = no-op)

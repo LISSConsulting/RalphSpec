@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,7 +39,7 @@ type loopSetup struct {
 }
 
 // setupLoop performs the common initialisation shared by executeLoop and
-// executeSmartRun: config load, validation, working dir, signal context, git
+// executeRun: config load, validation, working dir, signal context, git
 // runner, loop struct init, spec resolution, and store init.
 func setupLoop(noTUI, roam, noColor bool, agentOverride string) (*loopSetup, error) {
 	cfg, err := config.Load("")
@@ -66,7 +65,7 @@ func setupLoop(noTUI, roam, noColor bool, agentOverride string) (*loopSetup, err
 	}
 
 	gitRunner := git.NewRunner(dir)
-	effectiveRoam := roam || cfg.Build.Roam
+	effectiveRoam := roam || cfg.Roam.Enabled
 	agentType, err := resolveAgent(cfg, agentOverride)
 	if err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
@@ -152,25 +151,19 @@ func executeLoop(mode loop.Mode, maxOverride int, noTUI bool, roam bool, focus s
 		}
 	}
 
-	// Pre-flight: verify the prompt file exists before launching TUI or Regent.
-	// Without this check the TUI initialises, then fails on the first iteration
-	// with a confusing "loop: read prompt …: open …: no such file or directory".
-	var promptFile string
-	switch mode {
-	case loop.ModePlan:
-		promptFile = setup.cfg.Plan.PromptFile
-	default:
-		promptFile = setup.cfg.Build.PromptFile
-	}
-	if _, statErr := os.Stat(filepath.Join(setup.lp.Dir, promptFile)); statErr != nil {
-		return fmt.Errorf("prompt file %s: %w", promptFile, statErr)
-	}
-
 	setup.lp.Roam = setup.effectiveRoam
 	if focus != "" {
 		setup.lp.Focus = focus
 	} else {
-		setup.lp.Focus = setup.cfg.Build.Focus
+		setup.lp.Focus = setup.cfg.Roam.Focus
+	}
+
+	// Pre-flight: verify the prompt file exists before launching TUI or Regent.
+	// Without this check the TUI initialises, then fails on the first iteration
+	// with a confusing "loop: read prompt …: open …: no such file or directory".
+	promptFile := promptFileForRun(setup.cfg, setup.lp.Roam)
+	if _, statErr := os.Stat(filepath.Join(setup.lp.Dir, promptFile)); statErr != nil {
+		return fmt.Errorf("prompt file %s: %w", promptFile, statErr)
 	}
 
 	runFn := func(ctx context.Context) error {
@@ -249,8 +242,8 @@ func setupWorktree(setup *loopSetup) error {
 	return nil
 }
 
-// executeSmartRun runs plan if CHRONICLE.md doesn't exist, then build.
-func executeSmartRun(maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string) error {
+// executeRun runs the build loop; --roam switches it to ROAM.md.
+func executeRun(maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string) error {
 	setup, err := setupLoop(noTUI, roam, noColor, agentOverride)
 	if err != nil {
 		return err
@@ -270,35 +263,38 @@ func executeSmartRun(maxOverride int, noTUI bool, roam bool, focus string, noCol
 
 	effectiveFocus := focus
 	if effectiveFocus == "" {
-		effectiveFocus = setup.cfg.Build.Focus
+		effectiveFocus = setup.cfg.Roam.Focus
+	}
+	setup.lp.Roam = setup.effectiveRoam
+	setup.lp.Focus = effectiveFocus
+
+	promptFile := promptFileForRun(setup.cfg, setup.lp.Roam)
+	if _, statErr := os.Stat(filepath.Join(setup.lp.Dir, promptFile)); statErr != nil {
+		return fmt.Errorf("prompt file %s: %w", promptFile, statErr)
 	}
 
-	smartRunFn := func(ctx context.Context) error {
-		// Check inside the closure so Regent retries re-evaluate whether
-		// the plan file exists (it may have been created by a prior attempt).
-		planPath := filepath.Join(setup.lp.Dir, "CHRONICLE.md")
-		info, statErr := os.Stat(planPath)
-		if needsPlanPhase(info, statErr) {
-			if planErr := setup.lp.Run(ctx, loop.ModePlan, 0); planErr != nil {
-				return fmt.Errorf("plan phase: %w", planErr)
-			}
-		}
-		setup.lp.Roam = setup.effectiveRoam
-		setup.lp.Focus = effectiveFocus
+	runFn := func(ctx context.Context) error {
 		return setup.lp.Run(ctx, loop.ModeBuild, maxOverride)
 	}
 
 	if !setup.cfg.Regent.Enabled {
 		if noTUI {
-			return runWithStateTracking(setup.ctx, setup.lp, setup.lp.Dir, setup.gitRunner, "run", setup.sw, setup.formatter, smartRunFn)
+			return runWithStateTracking(setup.ctx, setup.lp, setup.lp.Dir, setup.gitRunner, "run", setup.sw, setup.formatter, runFn)
 		}
-		return runWithTUIAndState(setup.ctx, setup.lp, setup.lp.Dir, setup.gitRunner, "run", setup.cfg.TUI.AccentColor, setup.cfg.Project.Name, setup.sw, setup.sr, smartRunFn)
+		return runWithTUIAndState(setup.ctx, setup.lp, setup.lp.Dir, setup.gitRunner, "run", setup.cfg.TUI.AccentColor, setup.cfg.Project.Name, setup.sw, setup.sr, runFn)
 	}
 
 	if noTUI {
-		return runWithRegent(setup.ctx, setup.lp, setup.cfg, setup.gitRunner, setup.lp.Dir, setup.sw, setup.formatter, smartRunFn)
+		return runWithRegent(setup.ctx, setup.lp, setup.cfg, setup.gitRunner, setup.lp.Dir, setup.sw, setup.formatter, runFn)
 	}
-	return runWithRegentTUI(setup.ctx, setup.lp, setup.cfg, setup.gitRunner, setup.lp.Dir, setup.sw, setup.sr, smartRunFn)
+	return runWithRegentTUI(setup.ctx, setup.lp, setup.cfg, setup.gitRunner, setup.lp.Dir, setup.sw, setup.sr, runFn)
+}
+
+func promptFileForRun(cfg *config.Config, roam bool) string {
+	if roam {
+		return cfg.Roam.PromptFile
+	}
+	return cfg.Build.PromptFile
 }
 
 // showStatus reads .ralph/regent-state.json and prints a formatted summary
@@ -454,13 +450,6 @@ func classifyResultWithPIDCheck(state regent.State, pidRunning func(int) bool) s
 	default:
 		return statusNoState
 	}
-}
-
-// needsPlanPhase reports whether the plan phase should run based on the
-// result of os.Stat on CHRONICLE.md. Returns true if the file
-// does not exist or is empty.
-func needsPlanPhase(info fs.FileInfo, statErr error) bool {
-	return statErr != nil || info == nil || info.Size() == 0
 }
 
 // executeDashboard launches the TUI in idle/dashboard state.

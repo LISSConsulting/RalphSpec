@@ -20,11 +20,11 @@ func TestDefaults(t *testing.T) {
 		{"codex.model", cfg.Codex.Model, ""},
 		{"claude.max_turns", cfg.Claude.MaxTurns, 0},
 		{"claude.danger_skip_permissions", cfg.Claude.DangerSkipPermissions, true},
-		{"plan.prompt_file", cfg.Plan.PromptFile, "PLAN.md"},
-		{"plan.max_iterations", cfg.Plan.MaxIterations, 3},
 		{"build.prompt_file", cfg.Build.PromptFile, "BUILD.md"},
 		{"build.max_iterations", cfg.Build.MaxIterations, 0},
-		{"build.roam", cfg.Build.Roam, false},
+		{"roam.enabled", cfg.Roam.Enabled, false},
+		{"roam.prompt_file", cfg.Roam.PromptFile, "ROAM.md"},
+		{"roam.max_iterations", cfg.Roam.MaxIterations, 0},
 		{"git.auto_pull_rebase", cfg.Git.AutoPullRebase, true},
 		{"git.auto_push", cfg.Git.AutoPush, true},
 		{"regent.enabled", cfg.Regent.Enabled, true},
@@ -69,13 +69,15 @@ model = "opus"
 max_turns = 25
 danger_skip_permissions = false
 
-[plan]
-prompt_file = "MY_PLAN.md"
-max_iterations = 5
-
 [build]
 prompt_file = "MY_BUILD.md"
 max_iterations = 10
+
+[roam]
+enabled = true
+prompt_file = "MY_ROAM.md"
+max_iterations = 7
+focus = "UI"
 
 [git]
 auto_pull_rebase = false
@@ -117,10 +119,12 @@ model = "gpt-5-codex"
 			{"codex.model", cfg.Codex.Model, "gpt-5-codex"},
 			{"claude.max_turns", cfg.Claude.MaxTurns, 25},
 			{"claude.danger_skip_permissions", cfg.Claude.DangerSkipPermissions, false},
-			{"plan.prompt_file", cfg.Plan.PromptFile, "MY_PLAN.md"},
-			{"plan.max_iterations", cfg.Plan.MaxIterations, 5},
 			{"build.prompt_file", cfg.Build.PromptFile, "MY_BUILD.md"},
 			{"build.max_iterations", cfg.Build.MaxIterations, 10},
+			{"roam.enabled", cfg.Roam.Enabled, true},
+			{"roam.prompt_file", cfg.Roam.PromptFile, "MY_ROAM.md"},
+			{"roam.max_iterations", cfg.Roam.MaxIterations, 7},
+			{"roam.focus", cfg.Roam.Focus, "UI"},
 			{"git.auto_pull_rebase", cfg.Git.AutoPullRebase, false},
 			{"git.auto_push", cfg.Git.AutoPush, false},
 			{"regent.enabled", cfg.Regent.Enabled, false},
@@ -322,7 +326,7 @@ foo = "bar"
 			name: "multiple unknown keys",
 			toml: `[project]
 name = "Test"
-[plan]
+[roam]
 promptfile = "missing_underscore.md"
 maxiterations = 5
 `,
@@ -336,12 +340,14 @@ name = "Test"
 model = "opus"
 max_turns = 10
 danger_skip_permissions = false
-[plan]
-prompt_file = "p.md"
-max_iterations = 3
 [build]
 prompt_file = "b.md"
 max_iterations = 0
+[roam]
+enabled = false
+prompt_file = "r.md"
+max_iterations = 0
+focus = ""
 [git]
 auto_pull_rebase = true
 auto_push = true
@@ -413,24 +419,24 @@ func TestValidate(t *testing.T) {
 			modify: func(c *Config) {},
 		},
 		{
-			name:    "empty plan.prompt_file",
-			modify:  func(c *Config) { c.Plan.PromptFile = "" },
-			wantErr: "plan.prompt_file must not be empty",
-		},
-		{
 			name:    "empty build.prompt_file",
 			modify:  func(c *Config) { c.Build.PromptFile = "" },
 			wantErr: "build.prompt_file must not be empty",
 		},
 		{
-			name:    "negative plan.max_iterations",
-			modify:  func(c *Config) { c.Plan.MaxIterations = -1 },
-			wantErr: "plan.max_iterations must be >= 0",
+			name:    "empty roam.prompt_file",
+			modify:  func(c *Config) { c.Roam.PromptFile = "" },
+			wantErr: "roam.prompt_file must not be empty",
 		},
 		{
 			name:    "negative build.max_iterations",
 			modify:  func(c *Config) { c.Build.MaxIterations = -1 },
 			wantErr: "build.max_iterations must be >= 0",
+		},
+		{
+			name:    "negative roam.max_iterations",
+			modify:  func(c *Config) { c.Roam.MaxIterations = -1 },
+			wantErr: "roam.max_iterations must be >= 0",
 		},
 		{
 			name:    "negative claude.max_turns",
@@ -504,8 +510,8 @@ func TestValidate(t *testing.T) {
 		{
 			name: "zero max_iterations is valid (unlimited)",
 			modify: func(c *Config) {
-				c.Plan.MaxIterations = 0
 				c.Build.MaxIterations = 0
+				c.Roam.MaxIterations = 0
 			},
 		},
 		{
@@ -621,9 +627,9 @@ func TestValidate(t *testing.T) {
 
 func TestValidateMultipleErrors(t *testing.T) {
 	cfg := Defaults()
-	cfg.Plan.PromptFile = ""
 	cfg.Build.PromptFile = ""
-	cfg.Plan.MaxIterations = -1
+	cfg.Roam.PromptFile = ""
+	cfg.Roam.MaxIterations = -1
 
 	err := cfg.Validate()
 	if err == nil {
@@ -632,9 +638,9 @@ func TestValidateMultipleErrors(t *testing.T) {
 
 	msg := err.Error()
 	expected := []string{
-		"plan.prompt_file must not be empty",
 		"build.prompt_file must not be empty",
-		"plan.max_iterations must be >= 0",
+		"roam.prompt_file must not be empty",
+		"roam.max_iterations must be >= 0",
 	}
 	for _, want := range expected {
 		if !strings.Contains(msg, want) {
@@ -643,10 +649,10 @@ func TestValidateMultipleErrors(t *testing.T) {
 	}
 }
 
-func TestBuildRoam(t *testing.T) {
-	t.Run("roam = true parses from TOML", func(t *testing.T) {
+func TestRoamConfig(t *testing.T) {
+	t.Run("enabled = true parses from TOML", func(t *testing.T) {
 		dir := t.TempDir()
-		content := "[plan]\nprompt_file = \"PLAN.md\"\n[build]\nprompt_file = \"BUILD.md\"\nroam = true\n"
+		content := "[build]\nprompt_file = \"BUILD.md\"\n[roam]\nenabled = true\nprompt_file = \"ROAM.md\"\n"
 		if err := os.WriteFile(filepath.Join(dir, "ralph.toml"), []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -654,14 +660,14 @@ func TestBuildRoam(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !cfg.Build.Roam {
-			t.Error("expected Build.Roam = true after parsing roam = true")
+		if !cfg.Roam.Enabled {
+			t.Error("expected Roam.Enabled = true after parsing enabled = true")
 		}
 	})
 
 	t.Run("unknown key near roam is rejected", func(t *testing.T) {
 		dir := t.TempDir()
-		content := "[build]\nprompt_file = \"BUILD.md\"\nroam = true\nroam_typo = true\n"
+		content := "[roam]\nprompt_file = \"ROAM.md\"\nenabled = true\nroam_typo = true\n"
 		if err := os.WriteFile(filepath.Join(dir, "ralph.toml"), []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}

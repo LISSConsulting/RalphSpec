@@ -91,34 +91,32 @@ As a developer, I want the existing Claude loop behavior preserved under a `loop
 
 | Current Command | New Name            | Old Behavior                                  |
 | --------------- | ------------------- | --------------------------------------------- |
-| `ralph plan`    | `ralph loop plan`   | Run Claude loop in plan mode (PLAN.md prompt) |
 | `ralph build`   | `ralph loop build`  | Run Claude loop in build mode (BUILD.md)      |
-| `ralph run`     | `ralph loop run`    | Smart mode: plan if needed, then build        |
+| `ralph run`     | `ralph loop run`    | Run the autonomous build loop                 |
 
 **Why this priority**: Prevents breaking changes for users relying on the current loop behavior, while freeing the top-level command namespace for speckit.
 
-**Independent Test**: Can be tested by verifying `ralph loop plan` invokes the Claude loop with PLAN.md, and `ralph plan` invokes `/speckit.plan`.
+**Independent Test**: Can be tested by verifying `ralph loop build` invokes the autonomous loop with BUILD.md, and `ralph plan` invokes `/speckit.plan`.
 
 **Acceptance Scenarios**:
 
-1. **Given** existing `ralph plan` behavior, **When** I run `ralph loop plan`, **Then** the Claude loop runs in plan mode exactly as the old `ralph plan` did.
-2. **Given** existing `ralph build` behavior, **When** I run `ralph loop build`, **Then** the Claude loop runs in build mode exactly as the old `ralph build` did.
-3. **Given** existing `ralph run` behavior, **When** I run `ralph loop run`, **Then** smart mode runs exactly as the old `ralph run` did.
-4. **Given** I run `ralph plan` (without `loop` prefix), **Then** it invokes `/speckit.plan` — not the old Claude loop.
+1. **Given** existing `ralph build` behavior, **When** I run `ralph loop build`, **Then** the Claude loop runs in build mode exactly as the old `ralph build` did.
+2. **Given** existing `ralph run` behavior, **When** I run `ralph loop run`, **Then** the autonomous build loop remains available under `loop`.
+3. **Given** I run `ralph plan` (without `loop` prefix), **Then** it invokes `/speckit.plan`.
 
 ---
 
-### User Story 5 - PLAN.md and BUILD.md Update (Priority: P3)
+### User Story 5 - ROAM.md and BUILD.md Update (Priority: P3)
 
-As a developer, I want PLAN.md and BUILD.md to be updated so that when Ralph's autonomous loop runs (`ralph loop plan/build`), its prompts understand and reference the spec kit directory structure instead of assuming flat spec files.
+As a developer, I want ROAM.md and BUILD.md to be updated so that when Ralph's autonomous loop runs (`ralph build --roam` or `ralph loop build`), its prompts understand and reference the spec kit directory structure instead of assuming flat spec files.
 
 **Why this priority**: The autonomous loop (now under `ralph loop`) still needs correct prompts. Lower priority because the primary workflow shifts to speckit commands.
 
-**Independent Test**: Can be tested by running `ralph loop plan` and verifying the agent correctly discovers and reads artifacts from spec kit directories.
+**Independent Test**: Can be tested by running `ralph build --roam` and verifying the agent correctly discovers and reads artifacts from spec kit directories.
 
 **Acceptance Scenarios**:
 
-1. **Given** PLAN.md is updated, **When** the planning agent runs, **Then** it reads `spec.md`, `plan.md`, and `tasks.md` from each `specs/NNN-name/` directory — not just any `.md` file in `specs/`.
+1. **Given** ROAM.md is updated, **When** the roaming agent runs, **Then** it reads `spec.md`, `plan.md`, and `tasks.md` from each `specs/NNN-name/` directory — not just any `.md` file in `specs/`.
 2. **Given** BUILD.md is updated, **When** the build agent runs, **Then** it picks tasks from `tasks.md` within the active spec directory and references the corresponding `spec.md` and `plan.md` for context.
 
 ---
@@ -140,10 +138,10 @@ As a developer, I want PLAN.md and BUILD.md to be updated so that when Ralph's a
 - **FR-002**: System MUST support the canonical spec kit file layout: `spec.md`, `plan.md`, `tasks.md`, `data-model.md`, `quickstart.md`, `research.md`, plus `checklists/` and `contracts/` subdirectories.
 - **FR-003**: System MUST register `specify`, `plan`, `clarify`, and `tasks` as top-level commands that invoke the corresponding speckit skills via Claude Code.
 - **FR-004**: System MUST repurpose the `run` command to invoke `/speckit.implement` via Claude Code.
-- **FR-005**: System MUST relocate existing Claude loop commands (`plan`, `build`, `run`) under a `loop` parent command (`ralph loop plan`, `ralph loop build`, `ralph loop run`). Top-level `ralph build` MUST also remain as a direct alias since it has no speckit equivalent.
+- **FR-005**: System MUST expose Claude loop commands under a `loop` parent command (`ralph loop build`, `ralph loop run`). Top-level `ralph build` MUST also remain as a direct alias since it has no speckit equivalent.
 - **FR-006**: System MUST resolve the active spec directory from the current git branch name by matching against `specs/` directory names.
 - **FR-007**: System MUST invoke Claude Code by spawning `claude` with the appropriate speckit slash command and passing relevant context (spec directory path, description arguments).
-- **FR-008**: System MUST update PLAN.md to reference the spec kit directory structure when auditing specs vs. codebase.
+- **FR-008**: System MUST update ROAM.md to reference the spec kit directory structure when roaming across specs vs. codebase.
 - **FR-009**: System MUST update BUILD.md to read tasks from `tasks.md` within spec directories and reference `spec.md` and `plan.md` for context.
 - **FR-010**: System MUST remove `ralph spec new` entirely — `ralph specify` is the sole way to create specs. `ralph spec list` MUST be updated to work with the spec kit directory model.
 - **FR-011**: System MUST display a clear error when a speckit command is run but no active spec is found (no branch match and no explicit path).
@@ -162,7 +160,7 @@ As a developer, I want PLAN.md and BUILD.md to be updated so that when Ralph's a
 
 - **SC-001**: All five speckit commands (`specify`, `plan`, `clarify`, `tasks`, `run`) successfully invoke Claude Code and produce the expected artifacts in the correct spec directory.
 - **SC-002**: `ralph spec list` shows one entry per feature directory (not one per `.md` file) for all existing spec directories.
-- **SC-003**: Existing Claude loop behavior remains fully functional under `ralph loop plan`, `ralph loop build`, and `ralph loop run` with zero regressions.
+- **SC-003**: Existing Claude loop behavior remains fully functional under `ralph loop build` and `ralph loop run` with zero regressions.
 - **SC-004**: Active spec resolution correctly identifies the spec directory in 100% of cases where the branch name exactly matches a directory under `specs/`.
 - **SC-005**: All existing tests continue to pass after the refactor.
 - **SC-006**: Users can complete the full spec-driven workflow (specify → clarify → plan → tasks → run) using only Ralph CLI commands without needing to invoke Claude Code slash commands directly.

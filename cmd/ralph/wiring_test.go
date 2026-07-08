@@ -587,10 +587,10 @@ func waitForIdle(t *testing.T, ctrl *loopController) {
 	}
 }
 
-func TestLoopController_StartLoop_PlanMode(t *testing.T) {
+func TestLoopController_StartLoop_RoamMode(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	// PLAN.md absent — runLoop falls into case "plan" then fails fast.
+	// ROAM.md absent — roam mode fails fast on the roam prompt.
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
 
 	cfg, err := config.Load("")
@@ -605,14 +605,14 @@ func TestLoopController_StartLoop_PlanMode(t *testing.T) {
 		outerCtx:  context.Background(),
 	}
 
-	ctrl.StartLoop("plan")
+	ctrl.StartLoop("roam")
 	waitForIdle(t, ctrl)
 }
 
-func TestLoopController_StartLoop_SmartMode_NoPlan(t *testing.T) {
+func TestLoopController_StartLoop_RunMode(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	// No CHRONICLE.md — needsPlanPhase returns true, plan path is taken.
+	// BUILD.md absent — run mode fails fast on the build prompt.
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
 
 	cfg, err := config.Load("")
@@ -627,31 +627,7 @@ func TestLoopController_StartLoop_SmartMode_NoPlan(t *testing.T) {
 		outerCtx:  context.Background(),
 	}
 
-	ctrl.StartLoop("smart")
-	waitForIdle(t, ctrl)
-}
-
-func TestLoopController_StartLoop_SmartMode_WithChronicle(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	// CHRONICLE.md exists and is non-empty — needsPlanPhase returns false,
-	// plan is skipped and build path is taken directly.
-	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	writeExecTestFile(t, dir, "CHRONICLE.md", "# Chronicle\n## Completed Work\n")
-
-	cfg, err := config.Load("")
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-
-	ctrl := &loopController{
-		cfg:       cfg,
-		dir:       dir,
-		gitRunner: git.NewRunner(dir),
-		outerCtx:  context.Background(),
-	}
-
-	ctrl.StartLoop("smart")
+	ctrl.StartLoop("run")
 	waitForIdle(t, ctrl)
 }
 
@@ -668,7 +644,7 @@ func TestLoopController_StartLoop_ForwardGoroutine(t *testing.T) {
 	t.Chdir(dir)
 	initGitRepo(t, dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
+	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 
 	cfg, err := config.Load("")
 	if err != nil {
@@ -694,7 +670,7 @@ func TestLoopController_StartLoop_ForwardGoroutine(t *testing.T) {
 		agent:     &errAgent{err: errors.New("fake: no claude")},
 	}
 
-	ctrl.StartLoop("plan")
+	ctrl.StartLoop("build")
 	waitForIdle(t, ctrl)
 }
 
@@ -704,7 +680,6 @@ func TestLoopController_StartLoop_CodexDashboardAllowed(t *testing.T) {
 	cfg.Agent.Type = config.AgentCodex
 	dir := t.TempDir()
 	initGitRepo(t, dir)
-	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
 	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 
 	ctrl := &loopController{
@@ -716,7 +691,7 @@ func TestLoopController_StartLoop_CodexDashboardAllowed(t *testing.T) {
 		agent:     &errAgent{err: errors.New("fake codex stop")},
 	}
 
-	ctrl.StartLoop("plan")
+	ctrl.StartLoop("build")
 	waitForIdle(t, ctrl)
 
 	close(tuiSend)

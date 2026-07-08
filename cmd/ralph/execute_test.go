@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,61 +129,6 @@ func TestClassifyResult(t *testing.T) {
 			got := classifyResultWithPIDCheck(tt.state, pidRunning)
 			if got != tt.want {
 				t.Errorf("classifyResult() = %d, want %d", got, tt.want)
-			}
-		})
-	}
-}
-
-// fakeFileInfo implements fs.FileInfo for testing needsPlanPhase.
-type fakeFileInfo struct {
-	size int64
-}
-
-func (f fakeFileInfo) Name() string       { return "CHRONICLE.md" }
-func (f fakeFileInfo) Size() int64        { return f.size }
-func (f fakeFileInfo) Mode() fs.FileMode  { return 0644 }
-func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
-func (f fakeFileInfo) IsDir() bool        { return false }
-func (f fakeFileInfo) Sys() any           { return nil }
-
-func TestNeedsPlanPhase(t *testing.T) {
-	tests := []struct {
-		name    string
-		info    fs.FileInfo
-		statErr error
-		want    bool
-	}{
-		{
-			name:    "file does not exist",
-			info:    nil,
-			statErr: fs.ErrNotExist,
-			want:    true,
-		},
-		{
-			name:    "file exists but empty",
-			info:    fakeFileInfo{size: 0},
-			statErr: nil,
-			want:    true,
-		},
-		{
-			name:    "file exists with content",
-			info:    fakeFileInfo{size: 1024},
-			statErr: nil,
-			want:    false,
-		},
-		{
-			name:    "nil info with nil error (defensive)",
-			info:    nil,
-			statErr: nil,
-			want:    true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := needsPlanPhase(tt.info, tt.statErr)
-			if got != tt.want {
-				t.Errorf("needsPlanPhase() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -408,10 +352,6 @@ func TestSetupLoop_AgentPrecedence(t *testing.T) {
 	writeExecTestFile(t, dir, "ralph.toml", `[agent]
 type = "codex"
 
-[plan]
-prompt_file = "PLAN.md"
-max_iterations = 1
-
 [build]
 prompt_file = "BUILD.md"
 max_iterations = 1
@@ -453,7 +393,7 @@ func TestExecuteLoop_CodexUnavailable(t *testing.T) {
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
 	t.Setenv("PATH", "")
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, config.AgentCodex)
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, false, config.AgentCodex)
 	if err == nil {
 		t.Fatal("expected codex unavailable error")
 	}
@@ -472,7 +412,7 @@ func TestExecuteLoop_CodexWorktreeAccepted(t *testing.T) {
 	writeFakeCLIExecutable(t, dir, "codex")
 	prependCLIPath(t, dir)
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, true, config.AgentCodex)
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, true, config.AgentCodex)
 	if err == nil {
 		t.Fatal("expected worktree setup error without worktrunk, not codex rejection")
 	}
@@ -481,15 +421,14 @@ func TestExecuteLoop_CodexWorktreeAccepted(t *testing.T) {
 	}
 }
 
-func TestExecuteLoop_CodexPlanSuccess(t *testing.T) {
+func TestExecuteLoop_CodexBuildSuccess(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
 	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 	writeFakeCodexRunner(t, dir, strings.Join([]string{
-		`{"type":"message","text":"planning"}`,
+		`{"type":"message","text":"building"}`,
 		`{"type":"result","cost_usd":0.10,"duration_ms":25,"subtype":"success"}`,
 	}, "\n"), "", 0)
 	prependCLIPath(t, dir)
@@ -497,14 +436,14 @@ func TestExecuteLoop_CodexPlanSuccess(t *testing.T) {
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	err := executeLoop(loop.ModePlan, 1, true, false, "", true, false, config.AgentCodex)
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", true, false, config.AgentCodex)
 	_ = w.Close()
 	os.Stdout = oldStdout
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 
 	if err != nil {
-		t.Fatalf("expected successful codex plan run, got %v", err)
+		t.Fatalf("expected successful codex build run, got %v", err)
 	}
 	if !strings.Contains(buf.String(), "[codex]") {
 		t.Fatalf("expected live output to contain codex prefix, got %q", buf.String())
@@ -518,7 +457,7 @@ func TestExecuteLoop_CodexPlanSuccess(t *testing.T) {
 	}
 }
 
-func TestExecuteSmartRun_CodexBuildSuccess(t *testing.T) {
+func TestExecuteRun_CodexBuildSuccess(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	t.Chdir(dir)
@@ -530,9 +469,9 @@ type = "codex"
 	writeFakeCodexRunner(t, dir, `{"type":"result","cost_usd":0.10,"duration_ms":25,"subtype":"success"}`, "", 0)
 	prependCLIPath(t, dir)
 
-	err := executeSmartRun(1, true, false, "", true, false, "")
+	err := executeRun(1, true, false, "", true, false, "")
 	if err != nil {
-		t.Fatalf("expected successful smart codex run, got %v", err)
+		t.Fatalf("expected successful codex run, got %v", err)
 	}
 	state, loadErr := regent.LoadState(dir)
 	if loadErr != nil {
@@ -559,7 +498,7 @@ func TestExecuteLoop_DefaultClaudeRegression(t *testing.T) {
 	}
 }
 
-// ---- Integration tests for executeLoop and executeSmartRun ----
+// ---- Integration tests for executeLoop and executeRun ----
 //
 // These tests exercise the full orchestration path through config loading,
 // wiring, and loop setup. They fail before any claude invocation
@@ -569,11 +508,7 @@ func TestExecuteLoop_DefaultClaudeRegression(t *testing.T) {
 // testConfigNoRegent returns a minimal ralph.toml with regent disabled and
 // git ops turned off so tests don't attempt network operations.
 func testConfigNoRegent() string {
-	return `[plan]
-prompt_file = "PLAN.md"
-max_iterations = 1
-
-[build]
+	return `[build]
 prompt_file = "BUILD.md"
 max_iterations = 1
 
@@ -589,11 +524,7 @@ enabled = false
 // testConfigWithRegent returns a ralph.toml with regent enabled but
 // max_retries=0 so it fails fast after one error without backoff.
 func testConfigWithRegent() string {
-	return `[plan]
-prompt_file = "PLAN.md"
-max_iterations = 1
-
-[build]
+	return `[build]
 prompt_file = "BUILD.md"
 max_iterations = 1
 
@@ -678,7 +609,7 @@ func TestExecuteLoop_ConfigNotFound(t *testing.T) {
 	// Isolated temp dir with no ralph.toml anywhere in its ancestor tree.
 	t.Chdir(t.TempDir())
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error when ralph.toml not found")
 	}
@@ -690,10 +621,10 @@ func TestExecuteLoop_ConfigNotFound(t *testing.T) {
 func TestExecuteLoop_ConfigInvalid(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	// Empty plan.prompt_file fails Validate()
-	writeExecTestFile(t, dir, "ralph.toml", "[plan]\nprompt_file = \"\"\n[build]\nprompt_file = \"b.md\"\n")
+	// Empty roam.prompt_file fails Validate().
+	writeExecTestFile(t, dir, "ralph.toml", "[build]\nprompt_file = \"b.md\"\n[roam]\nprompt_file = \"\"\n")
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -702,36 +633,36 @@ func TestExecuteLoop_ConfigInvalid(t *testing.T) {
 	}
 }
 
-func TestExecuteLoop_RegentDisabled_PromptMissing(t *testing.T) {
+func TestExecuteLoop_RegentDisabled_RoamPromptMissing(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	// PLAN.md intentionally absent — loop.Run fails reading it.
+	// ROAM.md intentionally absent — pre-flight fails reading it.
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, true, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error when prompt file missing")
 	}
-	if !strings.Contains(err.Error(), "PLAN.md") {
-		t.Errorf("error should mention PLAN.md, got: %v", err)
+	if !strings.Contains(err.Error(), "ROAM.md") {
+		t.Errorf("error should mention ROAM.md, got: %v", err)
 	}
 }
 
-func TestExecuteLoop_RegentEnabled_PromptMissing(t *testing.T) {
+func TestExecuteLoop_RegentEnabled_RoamPromptMissing(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigWithRegent())
-	// PLAN.md intentionally absent.
+	// ROAM.md intentionally absent.
 	// Pre-flight check returns an error before Regent is initialised.
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, true, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error when prompt file missing")
 	}
-	if !strings.Contains(err.Error(), "PLAN.md") {
-		t.Errorf("error should mention PLAN.md, got: %v", err)
+	if !strings.Contains(err.Error(), "ROAM.md") {
+		t.Errorf("error should mention ROAM.md, got: %v", err)
 	}
 }
 
@@ -758,9 +689,9 @@ func TestExecuteLoop_RegentDisabled_PromptExists_GitFails(t *testing.T) {
 	// Deliberately no initGitRepo — git ops will fail.
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
+	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, false, "")
 	// Loop fails at git CurrentBranch — must be an error but not a prompt-file error.
 	if err == nil {
 		t.Fatal("expected error from git operations")
@@ -778,9 +709,9 @@ func TestExecuteLoop_RegentEnabled_PromptExists_GitFails(t *testing.T) {
 	// Deliberately no initGitRepo — git ops will fail.
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigWithRegent())
-	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
+	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, false, "")
 	// Regent gives up after 0 retries — must be an error.
 	if err == nil {
 		t.Fatal("expected error — Regent should give up after 0 retries")
@@ -790,12 +721,12 @@ func TestExecuteLoop_RegentEnabled_PromptExists_GitFails(t *testing.T) {
 	}
 }
 
-// ---- executeSmartRun integration tests ----
+// ---- executeRun integration tests ----
 
-func TestExecuteSmartRun_ConfigNotFound(t *testing.T) {
+func TestExecuteRun_ConfigNotFound(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	err := executeSmartRun(1, true, false, "", false, false, "")
+	err := executeRun(1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error when ralph.toml not found")
 	}
@@ -804,33 +735,14 @@ func TestExecuteSmartRun_ConfigNotFound(t *testing.T) {
 	}
 }
 
-func TestExecuteSmartRun_NeedsPlan_PromptMissing(t *testing.T) {
+func TestExecuteRun_BuildPromptMissing(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	// No CHRONICLE.md → needsPlanPhase returns true.
-	// No PLAN.md → plan phase fails reading it.
-
-	err := executeSmartRun(1, true, false, "", false, false, "")
-	if err == nil {
-		t.Fatal("expected error when plan prompt file missing")
-	}
-	if !strings.Contains(err.Error(), "PLAN.md") {
-		t.Errorf("error should mention PLAN.md, got: %v", err)
-	}
-}
-
-func TestExecuteSmartRun_SkipPlan_BuildPromptMissing(t *testing.T) {
-	dir := t.TempDir()
-	initGitRepo(t, dir)
-	t.Chdir(dir)
-	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	// Non-empty CHRONICLE.md → needsPlanPhase returns false.
-	writeExecTestFile(t, dir, "CHRONICLE.md", "# Plan\n\nSome content.\n")
 	// BUILD.md absent → build loop fails reading it.
 
-	err := executeSmartRun(1, true, false, "", false, false, "")
+	err := executeRun(1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error when build prompt file missing")
 	}
@@ -839,13 +751,31 @@ func TestExecuteSmartRun_SkipPlan_BuildPromptMissing(t *testing.T) {
 	}
 }
 
-func TestExecuteSmartRun_ConfigInvalid(t *testing.T) {
+func TestExecuteRun_WithChronicle_BuildPromptMissing(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	t.Chdir(dir)
+	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
+	// Non-empty CHRONICLE.md should not affect prompt selection.
+	writeExecTestFile(t, dir, "CHRONICLE.md", "# Plan\n\nSome content.\n")
+	// BUILD.md absent → build loop fails reading it.
+
+	err := executeRun(1, true, false, "", false, false, "")
+	if err == nil {
+		t.Fatal("expected error when build prompt file missing")
+	}
+	if !strings.Contains(err.Error(), "BUILD.md") {
+		t.Errorf("error should mention BUILD.md, got: %v", err)
+	}
+}
+
+func TestExecuteRun_ConfigInvalid(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	// Empty plan.prompt_file triggers Validate() error.
-	writeExecTestFile(t, dir, "ralph.toml", "[plan]\nprompt_file = \"\"\n[build]\nprompt_file = \"b.md\"\n")
+	// Empty roam.prompt_file triggers Validate() error.
+	writeExecTestFile(t, dir, "ralph.toml", "[build]\nprompt_file = \"b.md\"\n[roam]\nprompt_file = \"\"\n")
 
-	err := executeSmartRun(1, true, false, "", false, false, "")
+	err := executeRun(1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -854,16 +784,15 @@ func TestExecuteSmartRun_ConfigInvalid(t *testing.T) {
 	}
 }
 
-func TestExecuteSmartRun_RegentEnabled_PromptMissing(t *testing.T) {
+func TestExecuteRun_RegentEnabled_PromptMissing(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigWithRegent())
-	// No CHRONICLE.md → needsPlanPhase returns true.
-	// No PLAN.md → plan phase fails reading it.
+	// BUILD.md absent → build loop fails reading it.
 	// Regent gives up after 0 retries and returns max-retries error.
 
-	err := executeSmartRun(1, true, false, "", false, false, "")
+	err := executeRun(1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error — Regent should give up (max_retries=0)")
 	}
@@ -877,20 +806,20 @@ func TestExecuteLoop_StoreUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
-	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
+	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 	if err := os.WriteFile(filepath.Join(dir, ".ralph"), []byte("x"), 0644); err != nil {
 		t.Fatalf("WriteFile .ralph: %v", err)
 	}
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error from git operations")
 	}
 }
 
-func TestExecuteSmartRun_StoreUnavailable(t *testing.T) {
+func TestExecuteRun_StoreUnavailable(t *testing.T) {
 	// Create .ralph as a regular file so store.NewJSONL cannot create the logs
-	// subdirectory. Covers the same fmt.Fprintf stderr branch in executeSmartRun.
+	// subdirectory. Covers the same fmt.Fprintf stderr branch in executeRun.
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeExecTestFile(t, dir, "ralph.toml", testConfigNoRegent())
@@ -900,7 +829,7 @@ func TestExecuteSmartRun_StoreUnavailable(t *testing.T) {
 		t.Fatalf("WriteFile .ralph: %v", err)
 	}
 
-	err := executeSmartRun(1, true, false, "", false, false, "")
+	err := executeRun(1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error from git operations")
 	}
@@ -913,9 +842,9 @@ func TestExecuteLoop_NotificationsURLSet(t *testing.T) {
 	t.Chdir(dir)
 	cfg := testConfigNoRegent() + "\n[notifications]\nurl = \"http://127.0.0.1:0/webhook\"\n"
 	writeExecTestFile(t, dir, "ralph.toml", cfg)
-	writeExecTestFile(t, dir, "PLAN.md", "# Plan\n")
+	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 
-	err := executeLoop(loop.ModePlan, 1, true, false, "", false, false, "")
+	err := executeLoop(loop.ModeBuild, 1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error from git operations")
 	}
@@ -924,8 +853,8 @@ func TestExecuteLoop_NotificationsURLSet(t *testing.T) {
 	}
 }
 
-func TestExecuteSmartRun_NotificationsURLSet(t *testing.T) {
-	// With notifications.url set the notify wiring runs; smartRun still fails
+func TestExecuteRun_NotificationsURLSet(t *testing.T) {
+	// With notifications.url set the notify wiring runs; executeRun still fails
 	// at git operations because there is no git repo in the temp dir.
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -934,7 +863,7 @@ func TestExecuteSmartRun_NotificationsURLSet(t *testing.T) {
 	writeExecTestFile(t, dir, "CHRONICLE.md", "# Done\n\nSome content.\n")
 	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
 
-	err := executeSmartRun(1, true, false, "", false, false, "")
+	err := executeRun(1, true, false, "", false, false, "")
 	if err == nil {
 		t.Fatal("expected error from git operations")
 	}
@@ -956,8 +885,8 @@ func TestExecuteDashboard_ConfigNotFound(t *testing.T) {
 func TestExecuteDashboard_ConfigInvalid(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	// Empty plan.prompt_file triggers Validate() error.
-	writeExecTestFile(t, dir, "ralph.toml", "[plan]\nprompt_file = \"\"\n[build]\nprompt_file = \"b.md\"\n")
+	// Empty roam.prompt_file triggers Validate() error.
+	writeExecTestFile(t, dir, "ralph.toml", "[build]\nprompt_file = \"b.md\"\n[roam]\nprompt_file = \"\"\n")
 
 	err := executeDashboard()
 	if err == nil {

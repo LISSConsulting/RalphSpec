@@ -29,7 +29,7 @@ func rootCmd() *cobra.Command {
 		Short: "RalphSpec — spec-driven AI coding loop",
 		Long: "RalphSpec — spec-driven AI coding loop\n\n" +
 			"Spec kit workflow: specify → plan → clarify → tasks → run\n" +
-			"Loop commands: ralph loop plan/build/run\n" +
+			"Loop commands: ralph loop build/run; add --roam for codebase-wide roaming\n" +
 			"Run without a subcommand to enter dashboard mode (TUI idle state).",
 		Version: version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -61,7 +61,7 @@ func rootCmd() *cobra.Command {
 		clarifyCmd(),
 		speckitTasksCmd(),
 		speckitRunCmd(),
-		// Autonomous loop (build kept at top-level; plan/run moved under loop)
+		// Autonomous loop (build kept at top-level; run lives under loop)
 		buildCmd(),
 		loopCmd(),
 		// Worktree management

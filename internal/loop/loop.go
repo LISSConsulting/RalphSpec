@@ -16,7 +16,6 @@ import (
 type Mode string
 
 const (
-	ModePlan  Mode = "plan"
 	ModeBuild Mode = "build"
 )
 
@@ -56,8 +55,8 @@ type Loop struct {
 // configured max is reached, the context is cancelled, or an error occurs.
 // If maxOverride > 0, it overrides the config's max_iterations.
 func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
-	// If stop was already requested (e.g., Ctrl+C during a prior phase of
-	// smart run), exit immediately without starting a new run.
+	// If stop was already requested (e.g., Ctrl+C during a prior phase), exit
+	// immediately without starting a new run.
 	if l.StopAfter != nil {
 		select {
 		case <-l.StopAfter:
@@ -401,9 +400,12 @@ func (l *Loop) emit(entry LogEntry) {
 }
 
 func (l *Loop) modeConfig(mode Mode) (promptFile string, maxIter int) {
+	if l.Roam {
+		return l.Config.Roam.PromptFile, l.Config.Roam.MaxIterations
+	}
 	switch mode {
-	case ModePlan:
-		return l.Config.Plan.PromptFile, l.Config.Plan.MaxIterations
+	case ModeBuild:
+		return l.Config.Build.PromptFile, l.Config.Build.MaxIterations
 	default:
 		return l.Config.Build.PromptFile, l.Config.Build.MaxIterations
 	}
@@ -445,18 +447,17 @@ func (l *Loop) agentDangerSkipPermissions() bool {
 }
 
 // augmentPrompt appends a ## Spec Context section to the prompt when applicable.
-// In roam mode, Claude is told to roam freely across the entire codebase.
+// In roam mode, the ROAM.md prompt already defines the codebase-wide mission.
 // When a spec name is set (and roam is false), the section names the active spec
 // and its directory to keep Claude focused on the spec boundary.
 // When focus is non-empty, a focus directive is appended to constrain the topic.
 // When neither applies, the prompt is returned unchanged.
 func augmentPrompt(prompt, spec, specDir string, roam bool, focus string) string {
 	if roam {
-		result := prompt + "\n\n## Spec Context\n\nRoam mode is active. You are free to review and improve the entire codebase — refactor, fix, optimise, and tidy without being confined to any single spec."
 		if focus != "" {
-			result += fmt.Sprintf("\n\nFocus your work on: %s. Prioritize changes related to this area over other improvements.", focus)
+			return prompt + fmt.Sprintf("\n\n## Roam Focus\n\nFocus your work on: %s. Prioritize changes related to this area over other improvements.", focus)
 		}
-		return result
+		return prompt
 	}
 	if spec != "" {
 		result := prompt + fmt.Sprintf("\n\n## Spec Context\n\nActive spec: %s\nSpec directory: %s\n\nStay focused on this spec. When the work described in this spec is complete, stop making changes.", spec, specDir)

@@ -56,7 +56,7 @@ ralph plan --spec 004-speckit-alignment   # target a specific spec
 ## Autonomous Loop (existing behavior, moved)
 
 ```sh
-ralph loop plan                 # old: ralph plan
+ralph loop build                # autonomous loop build mode
 ralph loop build                # old: ralph build
 ralph loop run                  # old: ralph run
 ralph build                     # unchanged (also available as ralph loop build)

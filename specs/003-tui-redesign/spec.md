@@ -149,7 +149,7 @@ The operator starts, stops, and restarts the loop directly from the TUI without 
 
 1. **Given** the TUI is in idle state (no loop running), **When** the operator presses `b`, **Then** a build loop starts with the current `ralph.toml` config, the header shows `● BUILDING`, and the main panel begins streaming output.
 2. **Given** a loop is running, **When** the operator presses `x`, **Then** the loop's context is cancelled, the current iteration finishes or is interrupted, the header shows `✓ IDLE`, and the iterations panel shows the last iteration's status.
-3. **Given** the TUI is in idle state, **When** the operator presses `p`, **Then** a plan loop starts. **When** the operator presses `R` (shift+r), **Then** smart run starts (plan if needed, then build).
+3. **Given** the TUI is in idle state, **When** the operator presses `R` (shift+r), **Then** a roam loop starts.
 
 ---
 

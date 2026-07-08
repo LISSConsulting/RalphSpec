@@ -62,7 +62,7 @@
 - [ ] T017 [US12] Implement focus directive appending in `augmentPrompt()`: when focus is non-empty, append "Focus your work on: <topic>. Prioritize changes related to this area over other improvements."
 - [ ] T018 [US12] Update `augmentPrompt()` call site in `Loop.Run()` in `internal/loop/loop.go` to pass `l.Focus`
 - [ ] T019 [P] [US12] Add `--focus` string flag to `buildCmd()`, `loopBuildCmd()`, `loopRunCmd()` in `cmd/ralph/commands.go`
-- [ ] T020 [US12] Wire focus flag through `executeLoop()` and `executeSmartRun()` in `cmd/ralph/execute.go` to set `lp.Focus`
+- [ ] T020 [US12] Wire focus flag through `executeLoop()` and `executeRun()` in `cmd/ralph/execute.go` to set `lp.Focus`
 - [ ] T021 [US12] Read `cfg.Build.Focus` as default when `--focus` flag is empty in `cmd/ralph/execute.go`
 - [ ] T022 [P] [US12] Add table-driven tests for `augmentPrompt()` with focus parameter in `internal/loop/loop_test.go`
 - [ ] T023 [P] [US12] Add test for `--focus` flag parsing in `cmd/ralph/commands_test.go`

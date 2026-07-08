@@ -25,8 +25,8 @@ type Config struct {
 	Agent         AgentConfig         `toml:"agent"`
 	Claude        ClaudeConfig        `toml:"claude"`
 	Codex         CodexConfig         `toml:"codex"`
-	Plan          PlanConfig          `toml:"plan"`
 	Build         BuildConfig         `toml:"build"`
+	Roam          RoamConfig          `toml:"roam"`
 	Git           GitConfig           `toml:"git"`
 	Regent        RegentConfig        `toml:"regent"`
 	TUI           TUIConfig           `toml:"tui"`
@@ -98,17 +98,17 @@ type CodexConfig struct {
 	Model string `toml:"model"`
 }
 
-// PlanConfig controls the plan loop.
-type PlanConfig struct {
-	PromptFile    string `toml:"prompt_file"`
-	MaxIterations int    `toml:"max_iterations"`
-}
-
 // BuildConfig controls the build loop.
 type BuildConfig struct {
 	PromptFile    string `toml:"prompt_file"`
 	MaxIterations int    `toml:"max_iterations"`
-	Roam          bool   `toml:"roam"`  // roam freely across the codebase (--roam flag overrides)
+}
+
+// RoamConfig controls codebase-wide roaming mode.
+type RoamConfig struct {
+	Enabled       bool   `toml:"enabled"` // roam freely across the codebase (--roam flag overrides)
+	PromptFile    string `toml:"prompt_file"`
+	MaxIterations int    `toml:"max_iterations"`
 	Focus         string `toml:"focus"` // constrain roam to a specific topic (--focus flag overrides)
 }
 
@@ -133,20 +133,20 @@ type RegentConfig struct {
 func (c *Config) Validate() error {
 	var errs []error
 
-	if c.Plan.PromptFile == "" {
-		errs = append(errs, fmt.Errorf("plan.prompt_file must not be empty"))
-	}
 	if c.Agent.Type != "" && c.Agent.Type != AgentClaude && c.Agent.Type != AgentCodex {
 		errs = append(errs, fmt.Errorf("agent.type must be one of %s,%s", AgentClaude, AgentCodex))
 	}
 	if c.Build.PromptFile == "" {
 		errs = append(errs, fmt.Errorf("build.prompt_file must not be empty"))
 	}
-	if c.Plan.MaxIterations < 0 {
-		errs = append(errs, fmt.Errorf("plan.max_iterations must be >= 0 (0 = unlimited)"))
+	if c.Roam.PromptFile == "" {
+		errs = append(errs, fmt.Errorf("roam.prompt_file must not be empty"))
 	}
 	if c.Build.MaxIterations < 0 {
 		errs = append(errs, fmt.Errorf("build.max_iterations must be >= 0 (0 = unlimited)"))
+	}
+	if c.Roam.MaxIterations < 0 {
+		errs = append(errs, fmt.Errorf("roam.max_iterations must be >= 0 (0 = unlimited)"))
 	}
 
 	if c.Claude.MaxTurns < 0 {
@@ -200,14 +200,14 @@ func Defaults() Config {
 			DangerSkipPermissions: true,
 		},
 		Codex: CodexConfig{},
-		Plan: PlanConfig{
-			PromptFile:    "PLAN.md",
-			MaxIterations: 3,
-		},
 		Build: BuildConfig{
 			PromptFile:    "BUILD.md",
 			MaxIterations: 0,
-			Roam:          false,
+		},
+		Roam: RoamConfig{
+			Enabled:       false,
+			PromptFile:    "ROAM.md",
+			MaxIterations: 0,
 		},
 		Git: GitConfig{
 			AutoPullRebase: true,
@@ -323,14 +323,14 @@ danger_skip_permissions = true
 [codex]
 model = ""
 
-[plan]
-prompt_file = "PLAN.md"
-max_iterations = 3
-
 [build]
 prompt_file = "BUILD.md"
 max_iterations = 0  # 0 = unlimited
-roam = false        # roam freely across the codebase (--roam flag overrides)
+
+[roam]
+enabled = false     # roam freely across the codebase (--roam flag overrides)
+prompt_file = "ROAM.md"
+max_iterations = 0  # 0 = unlimited
 focus = ""          # constrain roam to a specific topic (--focus flag overrides)
 
 [git]

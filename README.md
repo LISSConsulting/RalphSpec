@@ -172,8 +172,7 @@ Launch with `ralph` (no arguments) for the full four-panel interactive dashboard
 | `1` `2` `3` `4` | Jump to Specs / Iterations / Main / Secondary |
 | `5` | Jump to Worktrees panel (when worktree support enabled) |
 | `b` | Start build loop |
-| `p` | Start plan loop |
-| `R` | Smart run (plan if needed, then build) |
+| `R` | Start roam loop |
 | `x` | Cancel running loop immediately |
 | `s` | Graceful stop after current iteration |
 | `?` | Toggle help overlay |
@@ -316,14 +315,15 @@ danger_skip_permissions = true
 [codex]
 model = ""                    # optional Codex model override
 
-[plan]
-prompt_file = "PLAN.md"       # prompt template for plan iterations
-max_iterations = 3
-
 [build]
 prompt_file = "BUILD.md"      # prompt template for build iterations
 max_iterations = 0            # 0 = unlimited
-roam = false                  # --roam flag overrides this
+
+[roam]
+enabled = false               # --roam flag overrides this
+prompt_file = "ROAM.md"       # prompt template for roaming iterations
+max_iterations = 0            # 0 = unlimited
+focus = ""                    # optional roam topic constraint
 
 [git]
 auto_pull_rebase = true       # pull --rebase before each iteration
@@ -398,9 +398,8 @@ Codex prerequisites are checked at run start. If `codex` is missing from `PATH`,
 |---------|-------------|
 | `ralph build` | 🔨 Build mode — autonomous coding loop (alias for `ralph loop build`) |
 | `ralph build --roam` | 🌍 Roam freely across codebase, no spec boundary |
-| `ralph loop plan` | 📐 Plan mode loop |
 | `ralph loop build` | 🔨 Build mode loop |
-| `ralph loop run` | 🧠 Smart mode — plan if needed, then build |
+| `ralph loop run` | 🔁 Run the build loop; use `--roam` for codebase-wide roaming |
 
 ### Flags (all loop commands)
 
@@ -426,11 +425,14 @@ ralph build --roam
 # 🤖 Headless build for CI (no TUI, no color, max 10 iterations)
 ralph build --no-tui --no-color --max 10
 
-# 🧠 Smart run — plan first if no plan exists, then build
+# 🔁 Run the loop from the loop namespace
 ralph loop run
 
-# 📐 Run 3 planning iterations only
-ralph loop plan --max 3
+# 🌍 Run roam mode from the loop namespace
+ralph loop run --roam
+
+# 🌍 Roam with a specific focus
+ralph build --roam --focus "tests"
 
 # 🌿 Isolated build in a git worktree (requires worktrunk)
 ralph build --worktree
@@ -480,7 +482,7 @@ ralph build --worktree --agent codex
 │   └── 📂 008-tui-overhaul/
 ├── 📄 ralph.toml                    # Project configuration
 ├── 📄 CLAUDE.md                     # AI coding instructions
-├── 📄 PLAN.md                       # Plan mode prompt template
+├── 📄 ROAM.md                       # Roam mode prompt template
 ├── 📄 BUILD.md                      # Build mode prompt template
 └── 📄 CHRONICLE.md                  # Development history & sweep log
 ```

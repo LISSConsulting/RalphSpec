@@ -11,7 +11,7 @@ Represents how Ralph determines the effective agent for a workflow, run, or role
 | `RoleOverride` | string | Optional selection for a distinct multi-agent role |
 | `EffectiveAgent` | string | Resolved supported agent value used for execution |
 | `Source` | string | Resolution source: `role-override`, `run-override`, `project-default`, or `built-in-default` |
-| `Workflow` | string | Workflow being launched, such as plan, build, smart run, dashboard action, or worktree run |
+| `Workflow` | string | Workflow being launched, such as build, roam run, dashboard action, or worktree run |
 
 **Validation rules**:
 - Supported effective values are `claude` and `codex`.
