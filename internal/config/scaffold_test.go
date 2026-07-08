@@ -306,7 +306,7 @@ func TestScaffoldProject(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, want := range []string{"Roam mode", "CHRONICLE.md", "one cohesive improvement"} {
+		for _, want := range []string{"Roaming mode", "CHRONICLE.md", "one cohesive improvement", "avoid replaying completed history"} {
 			if !strings.Contains(string(content), want) {
 				t.Errorf("roam prompt should contain %q", want)
 			}
@@ -324,7 +324,7 @@ func TestScaffoldProject(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, want := range []string{"specs/", "CHRONICLE.md", "Implement"} {
+		for _, want := range []string{"active specification", "CHRONICLE.md", "highest-priority incomplete task"} {
 			if !strings.Contains(string(content), want) {
 				t.Errorf("build prompt should contain %q", want)
 			}
@@ -342,7 +342,7 @@ func TestScaffoldProject(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, want := range []string{"## Completed Work", "## Remaining Work", "## Key Learnings"} {
+		for _, want := range []string{"## Current Focus", "## Open Blockers", "## Open Findings", "not a changelog"} {
 			if !strings.Contains(string(content), want) {
 				t.Errorf("CHRONICLE.md should contain %q", want)
 			}
@@ -379,6 +379,51 @@ func TestScaffoldProject(t *testing.T) {
 		}
 	})
 
+	t.Run("force overwrites ralph files and removes legacy plan", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "ralph.toml"), []byte("[project]\nname = \"Custom\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		for name, content := range map[string]string{
+			"ROAM.md":      "old roam",
+			"BUILD.md":     "old build",
+			"CHRONICLE.md": "old chronicle",
+			"PLAN.md":      "legacy plan",
+			".gitignore":   "node_modules/\n",
+		} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(dir, "specs"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "specs", "keep.md"), []byte("keep"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		created, err := ScaffoldProjectWithOptions(dir, ScaffoldOptions{Force: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"ralph.toml", "ROAM.md", "BUILD.md", "CHRONICLE.md", "PLAN.md"} {
+			if !containsPath(created, filepath.Join(dir, want)) {
+				t.Errorf("force scaffold should report %s as changed; got %v", want, created)
+			}
+		}
+
+		assertFileContains(t, filepath.Join(dir, "ralph.toml"), `type = "claude"`)
+		assertFileContains(t, filepath.Join(dir, "ROAM.md"), "Roaming mode")
+		assertFileContains(t, filepath.Join(dir, "BUILD.md"), "active specification")
+		assertFileContains(t, filepath.Join(dir, "CHRONICLE.md"), "not a changelog")
+		assertFileContains(t, filepath.Join(dir, ".gitignore"), "node_modules/")
+		assertFileContains(t, filepath.Join(dir, ".gitignore"), ".ralph/regent-state.json")
+		if _, err := os.Stat(filepath.Join(dir, "PLAN.md")); !os.IsNotExist(err) {
+			t.Fatalf("PLAN.md should be removed, stat err: %v", err)
+		}
+		assertFileContains(t, filepath.Join(dir, "specs", "keep.md"), "keep")
+	})
+
 	t.Run("ralph.toml created by scaffold is loadable", func(t *testing.T) {
 		dir := t.TempDir()
 		if _, err := ScaffoldProject(dir); err != nil {
@@ -405,5 +450,25 @@ func writeCompleteRalphTOML(t *testing.T, dir string) {
 	t.Helper()
 	if _, err := InitFile(dir); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func containsPath(paths []string, want string) bool {
+	for _, path := range paths {
+		if path == want {
+			return true
+		}
+	}
+	return false
+}
+
+func assertFileContains(t *testing.T, path string, want string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), want) {
+		t.Fatalf("%s should contain %q, got:\n%s", path, want, string(content))
 	}
 }

@@ -5,7 +5,7 @@ Roaming mode is for codebase-wide improvement when no single active spec should 
 ## Context
 
 Read these sources using parallel subagents before making changes:
-- @CHRONICLE.md — the current work queue, completed work, and known findings
+- @CHRONICLE.md — unresolved blockers, open findings, current decisions, and active follow-ups only
 - `specs/` — application specifications; treat these as read-only source material
 - The codebase — implementation, tests, documentation, workflows, and configuration
 
@@ -25,7 +25,7 @@ Find and complete one high-leverage improvement per iteration. Good roam work in
 - Do not modify `specs/` unless the user explicitly asks.
 - Avoid broad rewrites, aesthetic churn, placeholder code, and unrelated changes.
 - Prefer the smallest complete fix that leaves the repository healthier.
-- Keep @CHRONICLE.md current with completed work, new findings, and any blocked items.
+- Keep @CHRONICLE.md compact. Record unresolved blockers, newly discovered follow-ups, and current decisions; avoid replaying completed history that already exists in git and JSONL logs.
 
 ## Workflow
 
@@ -33,8 +33,8 @@ Find and complete one high-leverage improvement per iteration. Good roam work in
 2. If no valid item exists, perform a focused sweep across tests, docs, TODOs, dead code, and spec drift.
 3. Implement one cohesive improvement completely.
 4. Run the relevant tests or checks for the files changed.
-5. Update @CHRONICLE.md and commit with a descriptive message.
+5. Update @CHRONICLE.md only if there is an unresolved blocker, new follow-up, current decision, or short completion note worth carrying forward, then commit with a descriptive message.
 
 ## Completion Criteria
 
-This iteration is complete when one verified improvement is shipped with tests/checks run, @CHRONICLE.md updated, and changes committed.
+This iteration is complete when one verified improvement is shipped with tests/checks run, durable state recorded only if needed, and changes committed.

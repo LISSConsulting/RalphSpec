@@ -103,7 +103,8 @@ func statusCmd() *cobra.Command {
 }
 
 func initCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Scaffold ralph project (config, prompts, specs dir)",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -111,7 +112,7 @@ func initCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("get working directory: %w", err)
 			}
-			created, err := config.ScaffoldProject(dir)
+			created, err := config.ScaffoldProjectWithOptions(dir, config.ScaffoldOptions{Force: force})
 			if err != nil {
 				return err
 			}
@@ -119,6 +120,8 @@ func initCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite Ralph scaffold files and remove legacy PLAN.md")
+	return cmd
 }
 
 func specCmd() *cobra.Command {

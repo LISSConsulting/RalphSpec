@@ -414,6 +414,44 @@ func TestInitCmdIdempotent(t *testing.T) {
 	}
 }
 
+func TestInitCmdForce(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	for name, content := range map[string]string{
+		"ROAM.md":      "old roam",
+		"BUILD.md":     "old build",
+		"CHRONICLE.md": "old chronicle",
+		"PLAN.md":      "legacy plan",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("WriteFile %s: %v", name, err)
+		}
+	}
+	if _, err := config.InitFile(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := initCmd()
+	if err := cmd.Flags().Set("force", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("initCmd RunE: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "ROAM.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "Roaming mode") {
+		t.Fatalf("ROAM.md was not overwritten: %s", string(content))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "PLAN.md")); !os.IsNotExist(err) {
+		t.Fatalf("PLAN.md should be removed by --force, stat err: %v", err)
+	}
+}
+
 func TestInitCmd_ScaffoldError(t *testing.T) {
 	// Trigger ScaffoldProject returning an error by creating .gitignore as a
 	// directory. Pre-create all files that scaffold checks before .gitignore so

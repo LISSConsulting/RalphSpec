@@ -299,14 +299,7 @@ func findConfig() (string, error) {
 	}
 }
 
-// InitFile writes a default ralph.toml template to the given directory.
-func InitFile(dir string) (string, error) {
-	path := filepath.Join(dir, "ralph.toml")
-	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("config: ralph.toml already exists at %s", path)
-	}
-
-	content := `# ralph.toml — RalphSpec project configuration
+const defaultConfigTemplate = `# ralph.toml — RalphSpec project configuration
 # Place this file in the root of your project.
 
 [project]
@@ -363,8 +356,23 @@ merge_target = ""      # branch to merge into (empty = branch worktree was creat
 path_template = ""     # deprecated: use worktree_dir
 worktree_dir = ""      # base directory for worktrees (default: ~/.ralph/worktrees)
 `
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		return "", fmt.Errorf("config: write %s: %w", path, err)
+
+// InitFile writes a default ralph.toml template to the given directory.
+func InitFile(dir string) (string, error) {
+	path := filepath.Join(dir, "ralph.toml")
+	if _, err := os.Stat(path); err == nil {
+		return "", fmt.Errorf("config: ralph.toml already exists at %s", path)
+	}
+
+	if err := writeDefaultConfigFile(path); err != nil {
+		return "", err
 	}
 	return path, nil
+}
+
+func writeDefaultConfigFile(path string) error {
+	if err := os.WriteFile(path, []byte(defaultConfigTemplate), 0644); err != nil {
+		return fmt.Errorf("config: write %s: %w", path, err)
+	}
+	return nil
 }

@@ -379,6 +379,7 @@ Codex prerequisites are checked at run start. If `codex` is missing from `PATH`,
 |---------|-------------|
 | `ralph` | 👑 Launch the interactive TUI dashboard |
 | `ralph init` | 🎬 Scaffold a new ralph project (config, prompts, specs dir) |
+| `ralph init --force` | ⚠️ Overwrite Ralph scaffold files and remove legacy `PLAN.md` |
 | `ralph status` | 📊 Show last run, cost, iteration count, branch |
 | `ralph spec list` | 📋 List all specs and their status |
 

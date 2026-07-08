@@ -9,17 +9,35 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// ScaffoldOptions controls project scaffold behavior.
+type ScaffoldOptions struct {
+	// Force overwrites Ralph-owned scaffold files and removes legacy PLAN.md.
+	Force bool
+}
+
 // ScaffoldProject creates the full ralph project structure in the given
 // directory. It creates or updates ralph.toml, prompt files for build and roam
 // modes, the specs/ directory, .gitignore, and CHRONICLE.md. Prompt and
 // chronicle files that already exist are left untouched. Returns the list of
 // changed paths.
 func ScaffoldProject(dir string) ([]string, error) {
+	return ScaffoldProjectWithOptions(dir, ScaffoldOptions{})
+}
+
+// ScaffoldProjectWithOptions creates or updates the full Ralph project
+// structure. With Force, Ralph-owned files are overwritten from current
+// templates and legacy PLAN.md is removed.
+func ScaffoldProjectWithOptions(dir string, opts ScaffoldOptions) ([]string, error) {
 	var created []string
 
 	// ralph.toml
 	tomlPath := filepath.Join(dir, "ralph.toml")
-	if _, err := os.Stat(tomlPath); os.IsNotExist(err) {
+	if opts.Force {
+		if err := writeDefaultConfigFile(tomlPath); err != nil {
+			return created, err
+		}
+		created = append(created, tomlPath)
+	} else if _, err := os.Stat(tomlPath); os.IsNotExist(err) {
 		if _, initErr := InitFile(dir); initErr != nil {
 			return created, initErr
 		}
@@ -38,20 +56,24 @@ func ScaffoldProject(dir string) ([]string, error) {
 
 	// ROAM.md
 	roamPath := filepath.Join(dir, "ROAM.md")
-	if _, err := os.Stat(roamPath); os.IsNotExist(err) {
+	if opts.Force || fileMissing(roamPath) {
 		if writeErr := os.WriteFile(roamPath, []byte(roamPromptTemplate), 0644); writeErr != nil {
 			return created, fmt.Errorf("scaffold: write %s: %w", roamPath, writeErr)
 		}
 		created = append(created, roamPath)
+	} else if _, err := os.Stat(roamPath); err != nil {
+		return created, fmt.Errorf("scaffold: stat %s: %w", roamPath, err)
 	}
 
 	// BUILD.md
 	buildPath := filepath.Join(dir, "BUILD.md")
-	if _, err := os.Stat(buildPath); os.IsNotExist(err) {
+	if opts.Force || fileMissing(buildPath) {
 		if writeErr := os.WriteFile(buildPath, []byte(buildPromptTemplate), 0644); writeErr != nil {
 			return created, fmt.Errorf("scaffold: write %s: %w", buildPath, writeErr)
 		}
 		created = append(created, buildPath)
+	} else if _, err := os.Stat(buildPath); err != nil {
+		return created, fmt.Errorf("scaffold: stat %s: %w", buildPath, err)
 	}
 
 	// specs/ directory
@@ -89,14 +111,30 @@ func ScaffoldProject(dir string) ([]string, error) {
 
 	// CHRONICLE.md
 	chroniclePath := filepath.Join(dir, "CHRONICLE.md")
-	if _, err := os.Stat(chroniclePath); os.IsNotExist(err) {
+	if opts.Force || fileMissing(chroniclePath) {
 		if writeErr := os.WriteFile(chroniclePath, []byte(implementationPlanTemplate), 0644); writeErr != nil {
 			return created, fmt.Errorf("scaffold: write %s: %w", chroniclePath, writeErr)
 		}
 		created = append(created, chroniclePath)
+	} else if _, err := os.Stat(chroniclePath); err != nil {
+		return created, fmt.Errorf("scaffold: stat %s: %w", chroniclePath, err)
+	}
+
+	if opts.Force {
+		planPath := filepath.Join(dir, "PLAN.md")
+		if err := os.Remove(planPath); err == nil {
+			created = append(created, planPath)
+		} else if !os.IsNotExist(err) {
+			return created, fmt.Errorf("scaffold: remove %s: %w", planPath, err)
+		}
 	}
 
 	return created, nil
+}
+
+func fileMissing(path string) bool {
+	_, err := os.Stat(path)
+	return os.IsNotExist(err)
 }
 
 type configScaffoldSection struct {
@@ -310,41 +348,109 @@ func parseTopLevelSection(line string) (string, bool) {
 	return section, true
 }
 
-const roamPromptTemplate = `You are a roaming build agent. Your state file is ` + "`CHRONICLE.md`" + `.
+const roamPromptTemplate = `You are a roaming build agent. Your state file is @CHRONICLE.md.
 
-Roam mode is for codebase-wide improvement when no single active spec should constrain the work.
+Roaming mode is for codebase-wide improvement when no single active spec should constrain the work.
 
-1. Read ` + "`CHRONICLE.md`" + `, ` + "`specs/`" + `, and the codebase before editing.
-2. Hunt for high-leverage improvements: verified spec drift, bugs, failing or weak tests, stale docs, dead code, TODO/FIXME items, and simple maintainability wins.
-3. Search before assuming. Confirm each issue from source, tests, or docs before changing code.
-4. Make one cohesive improvement per iteration. Avoid broad rewrites and unrelated churn.
-5. Run the relevant tests, update ` + "`CHRONICLE.md`" + ` with findings or completed work, then commit with a descriptive message.
+## Context
+
+Read these sources using parallel subagents before making changes:
+- @CHRONICLE.md - unresolved blockers, open findings, current decisions, and active follow-ups only
+- specs/ - application specifications; treat these as read-only source material
+- The codebase - implementation, tests, documentation, workflows, and configuration
+
+## Mission
+
+Find and complete one high-leverage improvement per iteration. Good roam work includes:
+- Verified spec drift or missing behavior found by comparing specs/ against implementation
+- Bugs, flaky tests, failing tests, weak coverage, or untested edge cases
+- Stale README/help text/docs, outdated examples, or misleading comments
+- TODO/FIXME/HACK/XXX items with clear, contained fixes
+- Dead code, unused helpers, duplication, or small maintainability wins
+- CI, tooling, or configuration problems that are safe to correct
+
+## Constraints
+
+- Search before assuming. Confirm every issue from source, tests, docs, or command output.
+- Do not modify specs/ unless the user explicitly asks.
+- Avoid broad rewrites, aesthetic churn, placeholder code, and unrelated changes.
+- Prefer the smallest complete fix that leaves the repository healthier.
+- Keep @CHRONICLE.md compact. Record unresolved blockers, newly discovered follow-ups, and current decisions; avoid replaying completed history that already exists in git and JSONL logs.
+
+## Workflow
+
+1. Inspect @CHRONICLE.md and choose the highest-value roam item that is still valid.
+2. If no valid item exists, perform a focused sweep across tests, docs, TODOs, dead code, and spec drift.
+3. Implement one cohesive improvement completely.
+4. Run the relevant tests or checks for the files changed.
+5. Update @CHRONICLE.md only if there is an unresolved blocker, new follow-up, current decision, or short completion note worth carrying forward, then commit with a descriptive message.
+
+## Completion Criteria
+
+This iteration is complete when one verified improvement is shipped with tests/checks run, durable state recorded only if needed, and changes committed.
 `
 
-const buildPromptTemplate = `Read the specs in ` + "`specs/`" + ` and the implementation plan.
-Pick the highest-priority incomplete item from ` + "`CHRONICLE.md`" + `.
+const buildPromptTemplate = `You are a build agent implementing the active specification.
 
-1. Study the codebase to understand what already exists.
-2. Implement the feature fully — no placeholders, no stubs.
-3. Run tests and ensure they pass.
-4. Commit with a descriptive message.
-5. Update ` + "`CHRONICLE.md`" + ` to reflect progress.
+## Inputs
+
+- Active spec context is provided by Ralph when available. Stay inside that spec boundary.
+- In the active specs/NNN-name/ directory, read spec.md, plan.md, and tasks.md.
+- Treat specs as read-only. If a spec is wrong or ambiguous, record the issue instead of editing specs.
+- Use @CHRONICLE.md only for current blockers, open findings, and notes that are not already captured in spec artifacts. Do not replay old completed-work history.
+
+## Rules
+
+- Search before assuming missing behavior.
+- Implement one highest-priority incomplete task or blocker completely.
+- No placeholders, stubs, broad rewrites, or compatibility shims without a concrete need.
+- Stage specific files only; never use git add -A.
+- Keep @AGENTS.md operational only. Put transient findings in @CHRONICLE.md.
+
+## Workflow
+
+1. Select the next incomplete task from the active spec's tasks.md. If none is actionable, use the highest-priority unresolved blocker in @CHRONICLE.md.
+2. Confirm current implementation state with code search and tests before editing.
+3. Make the smallest complete change that satisfies the task.
+4. Run the relevant tests or checks for the changed area.
+5. Update @CHRONICLE.md only with unresolved blockers, newly discovered follow-ups, or a short note that the selected item is complete.
+6. Commit and push when tests pass.
+
+## Empty Queue
+
+If the active spec has no incomplete tasks and @CHRONICLE.md has no unresolved blockers, perform one focused improvement sweep:
+
+- tests below useful coverage thresholds
+- TODO/FIXME/HACK/XXX with contained fixes
+- stale README/help/docs
+- CI/tooling drift
+- obvious dead code
+
+Ship at most one cohesive improvement per iteration, then update @CHRONICLE.md with the result.
+
+## Completion
+
+Stop after one task or one focused improvement is fully implemented, verified, recorded if needed, committed, and pushed.
 `
 
-const implementationPlanTemplate = `> [Project]: spec-driven AI coding loop.
-> Current state: **Initialization complete.** Specs pending implementation.
+const implementationPlanTemplate = `> Project working memory for Ralph agents.
+> Keep this file compact: unresolved state only, not a changelog. Completed history belongs in git, releases, and .ralph/logs/*.jsonl.
 
-## Completed Work
+## Current Focus
 
-| Phase | Features | Tags |
-|-------|----------|------|
+- No active focus yet.
 
-## Remaining Work
+## Open Blockers
 
-| Priority | Item | Location | Notes |
-|----------|------|----------|-------|
+| Priority | Blocker | Evidence | Next Action |
+|----------|---------|----------|-------------|
 
-## Key Learnings
+## Open Findings
+
+| Priority | Finding | Evidence | Status |
+|----------|---------|----------|--------|
+
+## Decisions To Preserve
 
 -
 `
