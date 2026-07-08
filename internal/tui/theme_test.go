@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
 )
 
@@ -205,6 +207,31 @@ func TestRenderLogLine_ToolNamePadded(t *testing.T) {
 				t.Fatalf("expected aligned tool rendering %q, got %q", tt.want, rendered)
 			}
 		})
+	}
+}
+
+func TestRenderLogLine_ToolInputColumnAlignedAcrossIcons(t *testing.T) {
+	th := NewTheme("")
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	input := "same-input"
+
+	inputColumn := func(toolName string) int {
+		t.Helper()
+		rendered := th.RenderLogLine(loop.LogEntry{
+			Kind:      loop.LogToolUse,
+			Timestamp: now,
+			ToolName:  toolName,
+			ToolInput: input,
+		}, 160)
+		idx := strings.Index(rendered, input)
+		if idx < 0 {
+			t.Fatalf("rendered tool line missing input %q: %q", input, rendered)
+		}
+		return lipgloss.Width(rendered[:idx])
+	}
+
+	if got, want := inputColumn("Bash"), inputColumn("Read"); got != want {
+		t.Fatalf("tool input columns differ: Bash=%d Read=%d", got, want)
 	}
 }
 
