@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/LISSConsulting/RalphSpec/internal/config"
+	"github.com/LISSConsulting/RalphSpec/internal/git"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
 	"github.com/LISSConsulting/RalphSpec/internal/regent"
 )
@@ -568,6 +569,21 @@ func writeFakeCLIExecutable(t *testing.T, dir, base string) string {
 	return name
 }
 
+func writeFakeWorktrunkExecutable(t *testing.T, dir string) {
+	t.Helper()
+	names := []string{"wt", "git-wt"}
+	content := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"worktrunk 1.0.0\"; exit 0; fi\nexit 0\n"
+	if runtime.GOOS == "windows" {
+		names = []string{"git-wt.cmd", "wt.cmd"}
+		content = "@echo off\r\nif \"%1\"==\"--version\" echo worktrunk 1.0.0\r\nexit /b 0\r\n"
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0755); err != nil {
+			t.Fatalf("WriteFile %s: %v", name, err)
+		}
+	}
+}
+
 func writeFakeCodexRunner(t *testing.T, dir, stdout, stderr string, exitCode int) {
 	t.Helper()
 	stdoutPath := filepath.Join(dir, "codex-stdout.txt")
@@ -1098,5 +1114,61 @@ func TestSetupWorktree_DetectFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "worktrunk") {
 		t.Errorf("error should mention worktrunk, got: %v", err)
+	}
+}
+
+func TestRalphWorktreeBranch(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 34, 56, 123, time.UTC)
+	got := ralphWorktreeBranch("refs/heads/develop", now)
+	want := "ralph/develop/20260709-123456-000000123"
+	if got != want {
+		t.Fatalf("ralphWorktreeBranch() = %q, want %q", got, want)
+	}
+}
+
+func TestSetupWorktree_CreatesRalphBranchInsteadOfCurrentBranch(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	fakeBin := t.TempDir()
+	writeFakeWorktrunkExecutable(t, fakeBin)
+	prependCLIPath(t, fakeBin)
+
+	worktreeDir := filepath.Join(t.TempDir(), "worktrees")
+	setup := &loopSetup{
+		cfg: &config.Config{
+			Worktree: config.WorktreeConfig{WorktreeDir: worktreeDir},
+		},
+		dir:       dir,
+		gitRunner: git.NewRunner(dir),
+		lp:        &loop.Loop{},
+		cleanup:   func() {},
+	}
+	defer func() { setup.cleanup() }()
+
+	baseBranch, err := setup.gitRunner.CurrentBranch()
+	if err != nil {
+		t.Fatalf("CurrentBranch: %v", err)
+	}
+
+	if err := setupWorktree(setup); err != nil {
+		t.Fatalf("setupWorktree: %v", err)
+	}
+	if setup.lp.Dir == dir {
+		t.Fatal("expected setupWorktree to move loop dir into a separate worktree")
+	}
+
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = setup.lp.Dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git branch --show-current: %v", err)
+	}
+	worktreeBranch := strings.TrimSpace(string(out))
+	if worktreeBranch == baseBranch {
+		t.Fatalf("worktree reused current branch %q", baseBranch)
+	}
+	if !strings.HasPrefix(worktreeBranch, "ralph/"+baseBranch+"/") {
+		t.Fatalf("worktree branch = %q, want ralph/%s/ prefix", worktreeBranch, baseBranch)
 	}
 }

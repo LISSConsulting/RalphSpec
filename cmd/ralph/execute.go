@@ -183,9 +183,10 @@ func executeLoop(mode loop.Mode, maxOverride int, noTUI bool, roam bool, focus s
 	return runWithRegentTUI(setup.ctx, setup.lp, setup.cfg, setup.gitRunner, setup.lp.Dir, setup.sw, setup.sr, runFn)
 }
 
-// setupWorktree detects worktrunk, creates/switches to the worktree for the
-// current branch, and updates setup.lp.Dir and setup.gitRunner to point at the
-// worktree directory. Must be called before any prompt pre-flight checks.
+// setupWorktree detects worktrunk, creates/switches to a Ralph-owned worktree
+// branch based on the current branch, and updates setup.lp.Dir and
+// setup.gitRunner to point at the worktree directory. Must be called before any
+// prompt pre-flight checks.
 func setupWorktree(setup *loopSetup) error {
 	wtr := worktree.NewRunner(setup.dir)
 	if setup.cfg != nil {
@@ -195,10 +196,11 @@ func setupWorktree(setup *loopSetup) error {
 		return err
 	}
 
-	branch, err := setup.gitRunner.CurrentBranch()
+	baseBranch, err := setup.gitRunner.CurrentBranch()
 	if err != nil {
 		return fmt.Errorf("worktree: get current branch: %w", err)
 	}
+	branch := ralphWorktreeBranch(baseBranch, time.Now())
 
 	// Try to create a new worktree; if it already exists, switch to it.
 	wtPath, err := wtr.Switch(branch, true)
@@ -210,7 +212,7 @@ func setupWorktree(setup *loopSetup) error {
 		}
 		fmt.Fprintf(os.Stderr, "ralph: reusing existing worktree for %s at %s\n", branch, wtPath)
 	} else {
-		fmt.Fprintf(os.Stderr, "ralph: created worktree for %s at %s\n", branch, wtPath)
+		fmt.Fprintf(os.Stderr, "ralph: created worktree for %s from %s at %s\n", branch, baseBranch, wtPath)
 	}
 
 	// Guard: if the worktree path resolves to the same directory we
@@ -240,6 +242,15 @@ func setupWorktree(setup *loopSetup) error {
 	}
 
 	return nil
+}
+
+func ralphWorktreeBranch(baseBranch string, now time.Time) string {
+	baseBranch = strings.TrimSpace(strings.TrimPrefix(baseBranch, "refs/heads/"))
+	if baseBranch == "" {
+		baseBranch = "detached"
+	}
+	stamp := now.UTC().Format("20060102-150405") + fmt.Sprintf("-%09d", now.UTC().Nanosecond())
+	return "ralph/" + baseBranch + "/" + stamp
 }
 
 // executeRun runs the build loop; --roam switches it to ROAM.md.
