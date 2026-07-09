@@ -280,10 +280,10 @@ try {
                 Warn "golangci-lint not installed; skipping"
             }
         }
-        "test" { Banner "Tests"; Invoke-Step "go test -race -coverprofile=coverage.out ./..." { & go test -race -coverprofile=coverage.out ./... } }
+        "test" { Banner "Tests"; Invoke-Step "go test -race -coverprofile=coverage.out -count=1 ./..." { & go @("test", "-race", "-coverprofile=coverage.out", "-count=1", "./...") } }
         "coverage" {
             Banner "Coverage"
-            Invoke-Step "write coverage.out" { & go test -race -coverprofile=coverage.out ./... }
+            Invoke-Step "write coverage.out" { & go @("test", "-race", "-coverprofile=coverage.out", "-count=1", "./...") }
             Invoke-Step "write coverage.html" { & go tool cover -html=coverage.out -o coverage.html }
         }
         "build" { Banner "Build"; Invoke-Step "go build ./cmd/ralph" { & go build -trimpath -ldflags="-s -w -X main.version=$(Current-Version)" -o $Binary ./cmd/ralph } }
@@ -293,7 +293,7 @@ try {
             Invoke-Step "go mod download" { & go mod download }
             Invoke-Step "gofmt" { & gofmt -w (Get-ChildItem -Recurse -Filter *.go -Path cmd,internal | ForEach-Object FullName) }
             Invoke-Step "go vet ./..." { & go vet ./... }
-            Invoke-Step "go test -race -coverprofile=coverage.out ./..." { & go test -race -coverprofile=coverage.out ./... }
+            Invoke-Step "go test -race -coverprofile=coverage.out -count=1 ./..." { & go @("test", "-race", "-coverprofile=coverage.out", "-count=1", "./...") }
             if (Get-Command golangci-lint -ErrorAction SilentlyContinue) { Invoke-Step "golangci-lint run" { & golangci-lint run } } else { Warn "golangci-lint not installed; skipping" }
             Invoke-Step "build release matrix" { Build-Dist (Current-Version) }
         }
@@ -310,7 +310,7 @@ try {
             Assert-CleanTree
             Invoke-Step "go mod download" { & go mod download }
             Invoke-Step "go vet ./..." { & go vet ./... }
-            Invoke-Step "go test -race -cover ./..." { & go test -race -cover ./... }
+            Invoke-Step "go test -race -cover -count=1 ./..." { & go test -race -cover -count=1 ./... }
             if (Get-Command golangci-lint -ErrorAction SilentlyContinue) { Invoke-Step "golangci-lint run" { & golangci-lint run } } else { Warn "golangci-lint not installed; skipping" }
             Invoke-Step "build release assets" { Build-Dist $Version }
             Invoke-Step "publish GitHub release" { Publish-GitHubRelease $Version }
