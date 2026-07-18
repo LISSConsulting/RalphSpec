@@ -296,6 +296,38 @@ func TestRunCurrentBranchError(t *testing.T) {
 }
 
 func TestIteration(t *testing.T) {
+	t.Run("emits one completion for multiple agent results", func(t *testing.T) {
+		agent := &mockAgent{events: []claude.Event{
+			claude.ResultEvent(0.01, 3.9, "success"),
+			claude.ResultEvent(0.02, 9.9, "success"),
+			claude.ResultEvent(0.10, 540, "success"),
+		}}
+		git := &mockGit{branch: "main", lastCommit: "abc test"}
+		cfg := defaultTestConfig()
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		var completions []LogEntry
+		lp.NotificationHook = func(entry LogEntry) {
+			if entry.Kind == LogIterComplete {
+				completions = append(completions, entry)
+			}
+		}
+
+		cost, subtype, _, _, err := lp.iteration(context.Background(), 10, 10, "prompt", "main")
+		if err != nil {
+			t.Fatalf("iteration() returned error: %v", err)
+		}
+		if len(completions) != 1 {
+			t.Fatalf("got %d completion events, want 1", len(completions))
+		}
+		if cost != 0.10 || subtype != "success" {
+			t.Fatalf("result = ($%.2f, %q), want ($0.10, %q)", cost, subtype, "success")
+		}
+		if completions[0].CostUSD != 0.10 || completions[0].Duration != 540 {
+			t.Fatalf("completion = ($%.2f, %.1fs), want ($0.10, 540.0s)", completions[0].CostUSD, completions[0].Duration)
+		}
+	})
+
 	t.Run("uses elapsed wall time when agent omits result duration", func(t *testing.T) {
 		start := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
 		now := start

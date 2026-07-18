@@ -251,7 +251,10 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		return 0, "", false, false, fmt.Errorf("start %s: %w", l.agentName(), agentErr)
 	}
 
-	// Drain events
+	// Nested agents may emit their own results; only the final aggregate result
+	// completes the Ralph iteration.
+	var resultDuration float64
+	var resultSeen bool
 	for ev := range events {
 		switch ev.Type {
 		case claude.EventToolUse:
@@ -273,26 +276,8 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		case claude.EventResult:
 			cost = ev.CostUSD
 			subtype = ev.Subtype
-			duration := ev.Duration
-			if duration <= 0 {
-				duration = l.nowTime().Sub(agentStarted).Seconds()
-				if duration < 0 {
-					duration = 0
-				}
-			}
-			msg := fmt.Sprintf("Iteration %d complete — $%.2f — %.1fs", n, ev.CostUSD, duration)
-			if ev.Subtype != "" {
-				msg += fmt.Sprintf(" — %s", ev.Subtype)
-			}
-			l.emit(LogEntry{
-				Kind:      LogIterComplete,
-				Message:   msg,
-				Agent:     l.agentName(),
-				Iteration: n,
-				CostUSD:   ev.CostUSD,
-				Duration:  duration,
-				Subtype:   ev.Subtype,
-			})
+			resultDuration = ev.Duration
+			resultSeen = true
 		case claude.EventError:
 			l.emit(LogEntry{
 				Kind:    LogError,
@@ -300,6 +285,27 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 				Message: fmt.Sprintf("Error: %s", ev.Error),
 			})
 		}
+	}
+	if resultSeen {
+		if resultDuration <= 0 {
+			resultDuration = l.nowTime().Sub(agentStarted).Seconds()
+			if resultDuration < 0 {
+				resultDuration = 0
+			}
+		}
+		msg := fmt.Sprintf("Iteration %d complete — $%.2f — %.1fs", n, cost, resultDuration)
+		if subtype != "" {
+			msg += fmt.Sprintf(" — %s", subtype)
+		}
+		l.emit(LogEntry{
+			Kind:      LogIterComplete,
+			Message:   msg,
+			Agent:     l.agentName(),
+			Iteration: n,
+			CostUSD:   cost,
+			Duration:  resultDuration,
+			Subtype:   subtype,
+		})
 	}
 
 	// Push if there are new local commits
