@@ -8,7 +8,7 @@ var GlobalKeyBindings = []string{"tab", "shift+tab", "1", "2", "3", "4", "q", "c
 var panelKeys = map[FocusTarget][]string{
 	FocusSpecs:      {"j", "k", "enter", "e", "n"},
 	FocusIterations: {"j", "k", "enter"},
-	FocusMain:       {"f", "[", "]", "ctrl+u", "ctrl+d", "j", "k"},
+	FocusMain:       {"f", "[", "]", "{", "}", "ctrl+u", "ctrl+d", "j", "k"},
 	FocusSecondary:  {"[", "]", "j", "k"},
 }
 

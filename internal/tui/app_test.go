@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1123,7 +1124,10 @@ func TestHandleWorktreeSelected_SetsActiveBranch(t *testing.T) {
 	m = updated0.(Model)
 
 	// Pre-populate some accumulated log lines.
-	m.worktreeLogsByBranch["wt/feat-x"] = []string{"line-1", "line-2"}
+	m.worktreeLogsByBranch["wt/feat-x"] = []panels.OutputLine{
+		{Rendered: "line-1", Kind: loop.LogText},
+		{Rendered: "line-2", Kind: loop.LogToolUse, ToolName: "Bash"},
+	}
 
 	msg := panels.WorktreeSelectedMsg{Branch: "wt/feat-x"}
 	updated, _ := m.Update(msg)
@@ -1477,7 +1481,7 @@ func TestKey_W_WithOrch_WrongFocus_NoOp(t *testing.T) {
 
 func TestRunGitOutput_Error(t *testing.T) {
 	// An invalid git subcommand exits non-zero — error path returns "".
-	result := runGitOutput("this-subcommand-does-not-exist-xyz")
+	result := runGitOutput("", "this-subcommand-does-not-exist-xyz")
 	if result != "" {
 		t.Errorf("expected empty string on git error, got %q", result)
 	}
@@ -1485,18 +1489,55 @@ func TestRunGitOutput_Error(t *testing.T) {
 
 func TestRunGitOutput_Success(t *testing.T) {
 	// "git version" is always available.
-	result := runGitOutput("version")
+	result := runGitOutput("", "version")
 	if result == "" {
 		t.Error("expected non-empty output from git version")
 	}
 }
 
 func TestInitGitInfoCmd_ReturnsGitInfoMsg(t *testing.T) {
-	fn := initGitInfoCmd()
+	fn := initGitInfoCmd("")
 	msg := fn()
 	if _, ok := msg.(gitInfoMsg); !ok {
 		t.Fatalf("expected gitInfoMsg, got %T", msg)
 	}
 	// Branch and commit may be empty in a test environment — just ensure the
 	// function completes without panic.
+}
+
+func TestLoadSessionDiffCmd(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	run("init")
+	if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "tracked.txt")
+	run("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial")
+	base := strings.TrimSpace(runGitOutput(dir, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	msg, ok := loadSessionDiffCmd(dir, base)().(sessionDiffMsg)
+	if !ok {
+		t.Fatalf("expected sessionDiffMsg")
+	}
+	diff := strings.Join(msg.Lines, "\n")
+	for _, want := range []string{"tracked.txt", "after", "untracked.txt"} {
+		if !strings.Contains(diff, want) {
+			t.Errorf("session diff missing %q:\n%s", want, diff)
+		}
+	}
 }

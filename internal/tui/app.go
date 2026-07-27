@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -56,6 +57,7 @@ type Model struct {
 	// Identity
 	projectName string
 	workDir     string
+	sessionBase string
 
 	// Graceful stop
 	requestStop   func()
@@ -69,8 +71,8 @@ type Model struct {
 
 	// Worktree mode (nil when [worktree] is disabled)
 	orch                 *orchestrator.Orchestrator
-	worktreeLogsByBranch map[string][]string // branch → accumulated rendered log lines
-	activeWorktreeBranch string              // branch currently shown in Main panel
+	worktreeLogsByBranch map[string][]panels.OutputLine // branch → accumulated structured log lines
+	activeWorktreeBranch string                         // branch currently shown in Main panel
 
 	// Error/done
 	err  error
@@ -90,6 +92,10 @@ func New(events <-chan loop.LogEntry, storeReader store.Reader, accentColor, pro
 	itersW, itersH := innerDims(layout.Iterations)
 	mainW, mainH := innerDims(layout.Main)
 	secW, secH := innerDims(layout.Secondary)
+	sessionBase := ""
+	if info, err := os.Stat(workDir); err == nil && info.IsDir() {
+		sessionBase = strings.TrimSpace(runGitOutput(workDir, "rev-parse", "HEAD"))
+	}
 
 	return Model{
 		events:          events,
@@ -108,6 +114,7 @@ func New(events <-chan loop.LogEntry, storeReader store.Reader, accentColor, pro
 		now:             now,
 		projectName:     projectName,
 		workDir:         workDir,
+		sessionBase:     sessionBase,
 		requestStop:     requestStop,
 		controller:      controller,
 	}
@@ -121,7 +128,7 @@ func (m Model) WithOrchestrator(orch *orchestrator.Orchestrator) Model {
 		return m
 	}
 	m.orch = orch
-	m.worktreeLogsByBranch = make(map[string][]string)
+	m.worktreeLogsByBranch = make(map[string][]panels.OutputLine)
 	m.secondary = m.secondary.EnableWorktrees(agentsToEntries(orch.ActiveAgents()))
 	return m
 }
@@ -132,7 +139,7 @@ func (m Model) Err() error { return m.err }
 // Init returns the initial commands: event listener + clock ticker + optional
 // worktree tagged-event listener + startup data loading.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{waitForEvent(m.events), tickCmd(), initGitInfoCmd(), initIterationsCmd(m.storeReader)}
+	cmds := []tea.Cmd{waitForEvent(m.events), tickCmd(), initGitInfoCmd(m.workDir), initIterationsCmd(m.storeReader)}
 	if m.orch != nil {
 		cmds = append(cmds, waitForTaggedEvent(m.orch.MergedEvents))
 	}
@@ -140,21 +147,68 @@ func (m Model) Init() tea.Cmd {
 }
 
 // initGitInfoCmd reads the current git branch and last commit asynchronously.
-func initGitInfoCmd() tea.Cmd {
+func initGitInfoCmd(dir string) tea.Cmd {
 	return func() tea.Msg {
-		branch := runGitOutput("branch", "--show-current")
-		commit := runGitOutput("log", "-1", "--format=%h")
+		branch := runGitOutput(dir, "branch", "--show-current")
+		commit := runGitOutput(dir, "log", "-1", "--format=%h")
 		return gitInfoMsg{Branch: strings.TrimSpace(branch), LastCommit: strings.TrimSpace(commit)}
 	}
 }
 
 // runGitOutput runs a git subcommand and returns its stdout, or "" on error.
-func runGitOutput(args ...string) string {
-	out, err := exec.Command("git", args...).Output()
+func runGitOutput(dir string, args ...string) string {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
 	return string(out)
+}
+
+// loadSessionDiffCmd compares the current worktree, index, and commits with the
+// revision captured when the TUI model was created. Untracked files are diffed
+// separately because regular git diff output omits them.
+func loadSessionDiffCmd(dir, base string) tea.Cmd {
+	return func() tea.Msg {
+		if base == "" {
+			return sessionDiffMsg{Lines: []string{"(session diff unavailable: no starting revision)"}}
+		}
+
+		cmd := exec.Command("git", "-c", "color.ui=always", "diff", "--no-ext-diff", "--color=always", base, "--")
+		cmd.Dir = dir
+		tracked, err := cmd.Output()
+		if err != nil {
+			return sessionDiffMsg{Lines: []string{fmt.Sprintf("(session diff unavailable: %v)", err)}}
+		}
+
+		var output strings.Builder
+		output.Write(tracked)
+		untracked := strings.Split(runGitOutput(dir, "ls-files", "--others", "--exclude-standard", "-z"), "\x00")
+		for _, path := range untracked {
+			if path == "" {
+				continue
+			}
+			diffCmd := exec.Command("git", "-c", "color.ui=always", "diff", "--no-index", "--no-ext-diff", "--color=always", "--", os.DevNull, path)
+			diffCmd.Dir = dir
+			patch, diffErr := diffCmd.Output()
+			var exitErr *exec.ExitError
+			if diffErr != nil && (!errors.As(diffErr, &exitErr) || exitErr.ExitCode() != 1) {
+				if output.Len() > 0 && !strings.HasSuffix(output.String(), "\n") {
+					output.WriteByte('\n')
+				}
+				fmt.Fprintf(&output, "untracked: %s\n", path)
+				continue
+			}
+			output.Write(patch)
+		}
+
+		text := strings.TrimSuffix(output.String(), "\n")
+		if text == "" {
+			return sessionDiffMsg{Lines: []string{"(no changes since session start)"}}
+		}
+		return sessionDiffMsg{Lines: strings.Split(text, "\n")}
+	}
 }
 
 // initIterationsCmd pre-loads past iteration summaries from the store.
@@ -215,6 +269,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleTaggedEvent(msg)
 	case tickMsg:
 		m.now = time.Time(msg)
+		if m.mainView.ShowingSessionDiff() {
+			return m, tea.Batch(tickCmd(), loadSessionDiffCmd(m.workDir, m.sessionBase))
+		}
 		return m, tickCmd()
 	case loopDoneMsg:
 		// Channel closed — loop finished. Transition to idle but keep TUI open.
@@ -243,6 +300,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.LastCommit != "" {
 			m.lastCommit = msg.LastCommit
 		}
+		return m, nil
+	case sessionDiffMsg:
+		m.mainView = m.mainView.SetSessionDiff(msg.Lines)
 		return m, nil
 	case iterationsLoadedMsg:
 		for _, s := range msg.Summaries {
@@ -387,7 +447,11 @@ func (m Model) delegateToFocused(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case FocusIterations:
 		m.iterationsPanel, cmd = m.iterationsPanel.Update(msg)
 	case FocusMain:
+		wasShowingDiff := m.mainView.ShowingSessionDiff()
 		m.mainView, cmd = m.mainView.Update(msg)
+		if !wasShowingDiff && m.mainView.ShowingSessionDiff() {
+			cmd = tea.Batch(cmd, loadSessionDiffCmd(m.workDir, m.sessionBase))
+		}
 	case FocusSecondary:
 		m.secondary, cmd = m.secondary.Update(msg)
 	}
@@ -475,9 +539,9 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 		}
 	case loop.LogGitPull, loop.LogGitPush:
 		m.secondary = m.secondary.AppendLine(rendered, panels.TabGit)
-		m.mainView = m.mainView.AppendLine(rendered)
+		m.mainView = m.mainView.AppendOutput(panels.OutputLine{Rendered: rendered, Kind: entry.Kind, ToolName: entry.ToolName})
 	default:
-		m.mainView = m.mainView.AppendLine(rendered)
+		m.mainView = m.mainView.AppendOutput(panels.OutputLine{Rendered: rendered, Kind: entry.Kind, ToolName: entry.ToolName})
 	}
 
 	return m, waitForEvent(m.events)
@@ -489,16 +553,17 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 // appended to the Main panel in real time.
 func (m Model) handleTaggedEvent(msg taggedEventMsg) (tea.Model, tea.Cmd) {
 	rendered := m.theme.RenderLogLine(msg.Entry, m.layout.Main.Width)
+	line := panels.OutputLine{Rendered: rendered, Kind: msg.Entry.Kind, ToolName: msg.Entry.ToolName}
 
 	// Accumulate per-branch log.
 	if m.worktreeLogsByBranch == nil {
-		m.worktreeLogsByBranch = make(map[string][]string)
+		m.worktreeLogsByBranch = make(map[string][]panels.OutputLine)
 	}
-	m.worktreeLogsByBranch[msg.Branch] = append(m.worktreeLogsByBranch[msg.Branch], rendered)
+	m.worktreeLogsByBranch[msg.Branch] = append(m.worktreeLogsByBranch[msg.Branch], line)
 
 	// Live-append to Main panel when viewing this branch's log.
 	if m.activeWorktreeBranch == msg.Branch {
-		m.mainView = m.mainView.AppendLine(rendered)
+		m.mainView = m.mainView.AppendOutput(line)
 	}
 
 	// Route Regent events to the Secondary panel so the Regent tab is populated.
@@ -698,6 +763,7 @@ func (m Model) renderHelp() string {
 		"  MAIN PANEL",
 		"    f           Toggle follow (auto-scroll)",
 		"    [ / ]       Cycle tabs",
+		"    { / }       Cycle output filters (All/Thinking/Commands/Edits/Diff)",
 		"    ctrl+u/d    Page up / down",
 		"    j / k       Scroll line up / down",
 		"",

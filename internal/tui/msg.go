@@ -37,6 +37,11 @@ type gitInfoMsg struct {
 	LastCommit string
 }
 
+// sessionDiffMsg carries a rendered git diff from the TUI session's starting revision.
+type sessionDiffMsg struct {
+	Lines []string
+}
+
 // iterationsLoadedMsg carries iteration summaries pre-loaded from the store on startup.
 type iterationsLoadedMsg struct {
 	Summaries []store.IterationSummary

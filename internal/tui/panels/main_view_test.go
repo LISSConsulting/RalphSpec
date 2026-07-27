@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/LISSConsulting/RalphSpec/internal/loop"
 )
 
 func TestNewMainView(t *testing.T) {
@@ -224,12 +226,73 @@ func TestMainView_SummaryTab_ScrollDelegation(t *testing.T) {
 
 func TestMainView_ShowWorktreeLog_SetsContent(t *testing.T) {
 	mv := NewMainView(80, 20)
-	lines := []string{"line A", "line B", "line C"}
+	lines := []OutputLine{
+		{Rendered: "line A", Kind: loop.LogText},
+		{Rendered: "line B", Kind: loop.LogToolUse, ToolName: "Bash"},
+		{Rendered: "line C", Kind: loop.LogToolUse, ToolName: "Edit"},
+	}
 	mv2 := mv.ShowWorktreeLog(lines)
 	view := mv2.View()
 	// After ShowWorktreeLog the output tab is active; view must not be empty.
 	if view == "" {
 		t.Error("View() after ShowWorktreeLog should not be empty")
+	}
+}
+
+func TestMainView_OutputFilters(t *testing.T) {
+	mv := NewMainView(80, 20)
+	for _, line := range []OutputLine{
+		{Rendered: "general line", Kind: loop.LogInfo},
+		{Rendered: "thinking line", Kind: loop.LogText},
+		{Rendered: "command line", Kind: loop.LogToolUse, ToolName: "PowerShell"},
+		{Rendered: "edit line", Kind: loop.LogToolUse, ToolName: "apply_patch"},
+		{Rendered: "read line", Kind: loop.LogToolUse, ToolName: "Read"},
+	} {
+		mv = mv.AppendOutput(line)
+	}
+
+	tests := []struct {
+		filter OutputFilter
+		want   string
+		absent []string
+	}{
+		{FilterThinking, "thinking line", []string{"general line", "command line", "edit line", "read line"}},
+		{FilterCommands, "command line", []string{"general line", "thinking line", "edit line", "read line"}},
+		{FilterEdits, "edit line", []string{"general line", "thinking line", "command line", "read line"}},
+	}
+	for _, tt := range tests {
+		mv.outputFilter = tt.filter
+		mv.filterbar = mv.filterbar.SetActive(int(tt.filter))
+		view := mv.View()
+		if !strings.Contains(view, tt.want) {
+			t.Errorf("filter %v missing %q; got %q", tt.filter, tt.want, view)
+		}
+		for _, absent := range tt.absent {
+			if strings.Contains(view, absent) {
+				t.Errorf("filter %v unexpectedly contains %q; got %q", tt.filter, absent, view)
+			}
+		}
+	}
+}
+
+func TestMainView_DiffFilter(t *testing.T) {
+	mv := NewMainView(80, 20).SetSessionDiff([]string{"diff --git a/main.go b/main.go", "+new line"})
+	for i := 0; i < int(FilterDiff); i++ {
+		mv, _ = mv.Update(keyMsg("}"))
+	}
+	if !mv.ShowingSessionDiff() {
+		t.Fatal("expected Diff filter to be active")
+	}
+	view := mv.View()
+	if !strings.Contains(view, "diff --git") || !strings.Contains(view, "+new line") {
+		t.Errorf("Diff filter missing session diff; got %q", view)
+	}
+}
+
+func TestMainView_OutputFilterPrevWraps(t *testing.T) {
+	mv, _ := NewMainView(80, 20).Update(keyMsg("{"))
+	if !mv.ShowingSessionDiff() {
+		t.Fatalf("expected { to wrap from All to Diff, got filter %v", mv.outputFilter)
 	}
 }
 

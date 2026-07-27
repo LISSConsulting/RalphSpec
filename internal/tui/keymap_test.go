@@ -47,7 +47,7 @@ func TestPanelKeys(t *testing.T) {
 	}{
 		{FocusSpecs, []string{"j", "k", "enter", "e", "n"}},
 		{FocusIterations, []string{"j", "k", "enter"}},
-		{FocusMain, []string{"f", "[", "]", "ctrl+u", "ctrl+d", "j", "k"}},
+		{FocusMain, []string{"f", "[", "]", "{", "}", "ctrl+u", "ctrl+d", "j", "k"}},
 		{FocusSecondary, []string{"[", "]", "j", "k"}},
 	}
 
