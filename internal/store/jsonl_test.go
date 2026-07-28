@@ -156,6 +156,122 @@ func TestIterationsReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestOpenSession_ReadsPastLog(t *testing.T) {
+	dir := t.TempDir()
+	s, err := store.NewJSONL(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	_ = s.Append(loop.LogEntry{Kind: loop.LogInfo, Agent: "claude", Branch: "main", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 1, Agent: "claude", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogText, Iteration: 1, Message: "thinking", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: 1, CostUSD: 0.5, Timestamp: now})
+	sum, err := s.SessionSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := store.OpenSession(filepath.Join(dir, sum.SessionID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+
+	iters, err := r.Iterations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(iters) != 1 || iters[0].Number != 1 {
+		t.Fatalf("Iterations: got %+v", iters)
+	}
+
+	entries, err := r.IterationLog(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("IterationLog: expected 3 entries, got %d", len(entries))
+	}
+	if entries[1].Kind != loop.LogText || entries[1].Message != "thinking" {
+		t.Errorf("IterationLog entry[1]: got %+v", entries[1])
+	}
+
+	got, err := r.SessionSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionID != sum.SessionID {
+		t.Errorf("SessionID: got %q, want %q", got.SessionID, sum.SessionID)
+	}
+	if got.Agent != "claude" || got.Branch != "main" {
+		t.Errorf("metadata: got agent=%q branch=%q", got.Agent, got.Branch)
+	}
+	if got.TotalCost != 0.5 {
+		t.Errorf("TotalCost: got %v, want 0.5", got.TotalCost)
+	}
+	if got.StartedAt.IsZero() {
+		t.Error("StartedAt should be derived from the first entry")
+	}
+}
+
+func TestListSessions(t *testing.T) {
+	dir := t.TempDir()
+
+	sessions, err := store.ListSessions(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessions != nil {
+		t.Errorf("expected nil for empty dir, got %v", sessions)
+	}
+
+	// Two session files: rename the first (same-second, same-pid names
+	// collide) so the second gets its own file.
+	first, err := store.NewJSONL(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = first.Append(loop.LogEntry{Kind: loop.LogInfo, Agent: "claude", Timestamp: time.Now()})
+	sum1, err := first.SessionSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, sum1.SessionID+".jsonl"), filepath.Join(dir, "0000000001-1.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := store.NewJSONL(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = second.Append(loop.LogEntry{Kind: loop.LogInfo, Agent: "codex", Timestamp: time.Now()})
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err = store.ListSessions(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	// Newest first: the real-timestamp file sorts after the renamed 0000000001 file.
+	if sessions[0].Agent != "codex" {
+		t.Errorf("newest session should be codex, got %q", sessions[0].Agent)
+	}
+	if sessions[1].SessionID != "0000000001-1" {
+		t.Errorf("oldest session ID: got %q", sessions[1].SessionID)
+	}
+}
+
 func TestSessionSummary(t *testing.T) {
 	dir := t.TempDir()
 	s, err := store.NewJSONL(dir)

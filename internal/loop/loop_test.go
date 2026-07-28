@@ -650,6 +650,98 @@ func TestTextEventInEventChannel(t *testing.T) {
 	}
 }
 
+func TestSteerNudge(t *testing.T) {
+	events := make(chan LogEntry, 64)
+	steerCh := make(chan string, 4)
+	agent := &mockAgent{
+		events: []claude.Event{claude.ResultEvent(0.01, 0.1, "success")},
+	}
+	// Distinct headBefore/headAfter per iteration prevents spec-complete early
+	// exit so the second iteration always runs.
+	git := &mockGit{
+		branch:             "main",
+		lastCommitSequence: []string{"h0", "h1", "h2", "h2", "h3"},
+	}
+	cfg := defaultTestConfig()
+	cfg.Build.MaxIterations = 2
+
+	lp, _ := setupTestLoop(t, agent, git, cfg)
+	lp.Events = events
+	lp.Steer = steerCh
+	agent.onRun = func() {
+		if agent.calls == 1 {
+			steerCh <- "prefer the Edit tool"
+		}
+	}
+
+	if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(agent.lastPrompt, "## User steering") {
+		t.Errorf("iteration 2 prompt missing steering section:\n%s", agent.lastPrompt)
+	}
+	if !strings.Contains(agent.lastPrompt, "prefer the Edit tool") {
+		t.Errorf("iteration 2 prompt missing steer message:\n%s", agent.lastPrompt)
+	}
+
+	close(events)
+	var steerEntry *LogEntry
+	for e := range events {
+		e := e
+		if e.Kind == LogSteer {
+			steerEntry = &e
+		}
+	}
+	if steerEntry == nil {
+		t.Fatal("expected a LogSteer entry on the Events channel")
+	}
+	if steerEntry.Message != "prefer the Edit tool" {
+		t.Errorf("LogSteer message = %q", steerEntry.Message)
+	}
+}
+
+func TestSteerRunOptionsPassThrough(t *testing.T) {
+	t.Run("stdin_steer enabled passes channel to agent", func(t *testing.T) {
+		agent := &mockAgent{
+			events: []claude.Event{claude.ResultEvent(0.01, 0.1, "success")},
+		}
+		git := &mockGit{branch: "main", lastCommit: "h0"}
+		cfg := defaultTestConfig()
+		cfg.Build.MaxIterations = 1
+		cfg.Agent.StdinSteer = true
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		lp.Steer = make(chan string, 1)
+
+		if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if agent.lastOpts.Steer == nil {
+			t.Error("expected RunOptions.Steer to be set when stdin_steer is true")
+		}
+	})
+
+	t.Run("stdin_steer disabled leaves RunOptions.Steer nil", func(t *testing.T) {
+		agent := &mockAgent{
+			events: []claude.Event{claude.ResultEvent(0.01, 0.1, "success")},
+		}
+		git := &mockGit{branch: "main", lastCommit: "h0"}
+		cfg := defaultTestConfig()
+		cfg.Build.MaxIterations = 1
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		lp.Steer = make(chan string, 1)
+
+		if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if agent.lastOpts.Steer != nil {
+			t.Error("RunOptions.Steer must be nil when stdin_steer is false (legacy invocation)")
+		}
+	})
+}
+
 func TestSubtypeInLogOutput(t *testing.T) {
 	t.Run("subtype included in iteration complete message", func(t *testing.T) {
 		agent := &mockAgent{

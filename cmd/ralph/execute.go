@@ -70,7 +70,7 @@ func setupLoop(noTUI, roam, noColor bool, agentOverride string) (*loopSetup, err
 	if err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
-	agentImpl, err := buildAgent(agentType)
+	agentImpl, err := buildAgent(cfg, agentType)
 	if err != nil {
 		return nil, err
 	}
@@ -406,14 +406,30 @@ func resolveAgent(cfg *config.Config, override string) (string, error) {
 	return agentType, nil
 }
 
-func buildAgent(agentType string) (claude.Agent, error) {
+// harnessExecutable resolves the executable for an agent type, honoring the
+// [harness] overrides (e.g. claude-kimi, codex-minimax shims).
+func harnessExecutable(cfg *config.Config, agentType string) string {
 	if agentType == config.AgentCodex {
-		if err := codex.CheckAvailable(""); err != nil {
+		if cfg.Harness.Codex != "" {
+			return cfg.Harness.Codex
+		}
+		return "codex"
+	}
+	if cfg.Harness.Claude != "" {
+		return cfg.Harness.Claude
+	}
+	return "claude"
+}
+
+func buildAgent(cfg *config.Config, agentType string) (claude.Agent, error) {
+	exe := harnessExecutable(cfg, agentType)
+	if agentType == config.AgentCodex {
+		if err := codex.CheckAvailable(exe); err != nil {
 			return nil, fmt.Errorf("codex agent unavailable: %w; install or log into Codex CLI, or use --agent claude", err)
 		}
-		return codex.NewAgent(), nil
+		return &codex.Agent{Executable: exe}, nil
 	}
-	return loop.NewClaudeAgent(), nil
+	return &loop.ClaudeAgent{Executable: exe}, nil
 }
 
 func validateAgentFlow(agentType string, useWorktree bool, dashboard bool) error {
@@ -520,7 +536,11 @@ func executeSpeckit(ctx context.Context, skill string, args []string, interactiv
 		}
 		cmdArgs = []string{"-p", prompt, "--verbose"}
 	}
-	cmd := exec.CommandContext(ctx, "claude", cmdArgs...)
+	exe := "claude"
+	if cfg, err := config.Load(""); err == nil {
+		exe = harnessExecutable(cfg, config.AgentClaude)
+	}
+	cmd := exec.CommandContext(ctx, exe, cmdArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

@@ -23,6 +23,7 @@ var hexColorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 type Config struct {
 	Project       ProjectConfig       `toml:"project"`
 	Agent         AgentConfig         `toml:"agent"`
+	Harness       HarnessConfig       `toml:"harness"`
 	Claude        ClaudeConfig        `toml:"claude"`
 	Codex         CodexConfig         `toml:"codex"`
 	Build         BuildConfig         `toml:"build"`
@@ -41,7 +42,16 @@ const (
 
 // AgentConfig controls which agent Ralph should use by default.
 type AgentConfig struct {
-	Type string `toml:"type"`
+	Type       string `toml:"type"`
+	StdinSteer bool   `toml:"stdin_steer"` // write TUI steer messages to the running agent's stdin mid-turn (experimental)
+}
+
+// HarnessConfig selects the executable invoked for each agent harness.
+// Point these at shims (e.g. "claude-kimi", "codex-minimax") to run the
+// stock CLIs against custom providers.
+type HarnessConfig struct {
+	Claude string `toml:"claude"`
+	Codex  string `toml:"codex"`
 }
 
 // WorktreeConfig controls git worktree support via worktrunk.
@@ -195,6 +205,7 @@ func Defaults() Config {
 	return Config{
 		Project: ProjectConfig{Name: ""},
 		Agent:   AgentConfig{Type: AgentClaude},
+		Harness: HarnessConfig{Claude: "claude", Codex: "codex"},
 		Claude: ClaudeConfig{
 			Model:                 "sonnet",
 			DangerSkipPermissions: true,
@@ -307,6 +318,11 @@ name = ""
 
 [agent]
 type = "claude"
+stdin_steer = false  # experimental: steer messages go straight to the running agent's stdin mid-turn
+
+[harness]
+claude = "claude"  # executable for the claude harness, e.g. "claude-kimi"
+codex = "codex"    # executable for the codex harness, e.g. "codex-minimax"
 
 [claude]
 model = "sonnet"

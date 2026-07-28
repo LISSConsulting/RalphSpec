@@ -47,6 +47,20 @@ type iterationsLoadedMsg struct {
 	Summaries []store.IterationSummary
 }
 
+// sessionsLoadedMsg carries the list of past session logs for the picker.
+type sessionsLoadedMsg struct {
+	Sessions []store.SessionSummary
+}
+
+// sessionLoadedMsg carries a past session's reader and iteration summaries
+// after the user picks it from the session picker.
+type sessionLoadedMsg struct {
+	Reader    store.Reader
+	Summaries []store.IterationSummary
+	SessionID string
+	Err       error
+}
+
 // taggedEventMsg wraps a log entry from the orchestrator fan-in channel together
 // with the source worktree branch name.  Defined here without importing
 // orchestrator so that msg.go stays import-free of business-logic packages.

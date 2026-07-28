@@ -296,6 +296,43 @@ func TestMainView_OutputFilterPrevWraps(t *testing.T) {
 	}
 }
 
+func TestMainView_GGAndG(t *testing.T) {
+	mv := NewMainView(80, 5)
+	for i := 0; i < 20; i++ {
+		mv = mv.AppendOutput(OutputLine{Rendered: "line", Kind: loop.LogInfo})
+	}
+	if !mv.outputLog.Following() {
+		t.Fatal("precondition: follow should be on")
+	}
+
+	mv, _ = mv.Update(keyMsg("g"))
+	if !mv.pendingG {
+		t.Fatal("first g should arm pendingG")
+	}
+	if !mv.outputLog.Following() {
+		t.Error("single g must not scroll or change follow")
+	}
+	mv, _ = mv.Update(keyMsg("g"))
+	if mv.pendingG {
+		t.Error("gg should clear pendingG")
+	}
+	if mv.outputLog.Following() {
+		t.Error("gg should disable follow (scrolled to top)")
+	}
+
+	mv, _ = mv.Update(keyMsg("G"))
+	if !mv.outputLog.Following() {
+		t.Error("G should jump to bottom and re-enable follow")
+	}
+
+	// pendingG resets on any non-g key.
+	mv, _ = mv.Update(keyMsg("g"))
+	mv, _ = mv.Update(keyMsg("j"))
+	if mv.pendingG {
+		t.Error("pendingG should reset on non-g key")
+	}
+}
+
 // TestMainView_AppendLine_DoesNotAffectSpecLog verifies that appending output
 // lines never displaces or contaminates the spec tab's independent buffer.
 // This is the key invariant of the per-tab LogView refactor (T039).

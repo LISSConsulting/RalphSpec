@@ -456,14 +456,23 @@ func (o *Orchestrator) buildAgent() (string, claude.Agent, error) {
 	if o.cfg != nil && o.cfg.Agent.Type != "" {
 		agentType = o.cfg.Agent.Type
 	}
+	harness := config.HarnessConfig{Claude: "claude", Codex: "codex"}
+	if o.cfg != nil {
+		if o.cfg.Harness.Claude != "" {
+			harness.Claude = o.cfg.Harness.Claude
+		}
+		if o.cfg.Harness.Codex != "" {
+			harness.Codex = o.cfg.Harness.Codex
+		}
+	}
 	switch agentType {
 	case config.AgentClaude:
-		return agentType, loop.NewClaudeAgent(), nil
+		return agentType, &loop.ClaudeAgent{Executable: harness.Claude}, nil
 	case config.AgentCodex:
-		if err := codex.CheckAvailable(""); err != nil {
+		if err := codex.CheckAvailable(harness.Codex); err != nil {
 			return "", nil, fmt.Errorf("codex agent unavailable: %w; install or log into Codex CLI, or use --agent claude", err)
 		}
-		return agentType, codex.NewAgent(), nil
+		return agentType, &codex.Agent{Executable: harness.Codex}, nil
 	default:
 		return "", nil, fmt.Errorf("agent.type must be one of %s,%s", config.AgentClaude, config.AgentCodex)
 	}

@@ -74,6 +74,29 @@ func TestLogView_ToggleFollow(t *testing.T) {
 	}
 }
 
+func TestLogView_GotoTopBottom(t *testing.T) {
+	lv := NewLogView(80, 2)
+	for i := 0; i < 20; i++ {
+		lv = lv.AppendLine(fmt.Sprintf("line %02d", i))
+	}
+
+	lv = lv.GotoTop()
+	if lv.Following() {
+		t.Error("GotoTop should disable follow")
+	}
+	if lv.vp.YOffset != 0 {
+		t.Errorf("GotoTop: YOffset = %d, want 0", lv.vp.YOffset)
+	}
+
+	lv = lv.GotoBottom()
+	if !lv.Following() {
+		t.Error("GotoBottom should enable follow")
+	}
+	if !lv.vp.AtBottom() {
+		t.Error("GotoBottom should scroll to bottom")
+	}
+}
+
 func TestLogView_SetSize(t *testing.T) {
 	lv := NewLogView(80, 10)
 	lv = lv.SetSize(100, 20)

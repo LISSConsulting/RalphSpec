@@ -16,6 +16,9 @@ func TestDefaults(t *testing.T) {
 		want any
 	}{
 		{"agent.type", cfg.Agent.Type, AgentClaude},
+		{"agent.stdin_steer", cfg.Agent.StdinSteer, false},
+		{"harness.claude", cfg.Harness.Claude, "claude"},
+		{"harness.codex", cfg.Harness.Codex, "codex"},
 		{"claude.model", cfg.Claude.Model, "sonnet"},
 		{"codex.model", cfg.Codex.Model, ""},
 		{"claude.max_turns", cfg.Claude.MaxTurns, 0},
@@ -63,6 +66,11 @@ name = "TestProject"
 
 [agent]
 type = "codex"
+stdin_steer = true
+
+[harness]
+claude = "claude-kimi"
+codex = "codex-minimax"
 
 [claude]
 model = "opus"
@@ -115,6 +123,9 @@ model = "gpt-5-codex"
 		}{
 			{"project.name", cfg.Project.Name, "TestProject"},
 			{"agent.type", cfg.Agent.Type, AgentCodex},
+			{"agent.stdin_steer", cfg.Agent.StdinSteer, true},
+			{"harness.claude", cfg.Harness.Claude, "claude-kimi"},
+			{"harness.codex", cfg.Harness.Codex, "codex-minimax"},
 			{"claude.model", cfg.Claude.Model, "opus"},
 			{"codex.model", cfg.Codex.Model, "gpt-5-codex"},
 			{"claude.max_turns", cfg.Claude.MaxTurns, 25},

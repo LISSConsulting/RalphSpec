@@ -19,6 +19,7 @@ const (
 	LogRegent                       // Regent supervisor message
 	LogSpecComplete                 // Spec boundary reached — success with no new commits (default mode)
 	LogSweepComplete                // Roam complete — no spec boundary (--roam mode)
+	LogSteer                        // Operator steering message consumed by the loop
 )
 
 // LogEntry is a structured event emitted by the loop during execution.

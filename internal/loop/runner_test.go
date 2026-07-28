@@ -2,7 +2,9 @@ package loop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,10 @@ import (
 func init() {
 	if os.Getenv("_FAKE_CLAUDE") != "1" {
 		return
+	}
+	if f := os.Getenv("_FAKE_CLAUDE_STDIN_FILE"); f != "" {
+		data, _ := io.ReadAll(os.Stdin)
+		_ = os.WriteFile(f, data, 0644)
 	}
 	if f := os.Getenv("_FAKE_CLAUDE_STDOUT_FILE"); f != "" {
 		if data, err := os.ReadFile(f); err == nil {
@@ -108,6 +114,18 @@ func TestBuildArgs(t *testing.T) {
 				"--max-turns", "50",
 				"--dangerously-skip-permissions",
 			},
+		},
+		{
+			name:   "live steer uses SDK pipe mode",
+			prompt: "test prompt",
+			opts:   claude.RunOptions{Steer: make(chan string)},
+			contains: []string{
+				"-p",
+				"--output-format", "stream-json",
+				"--input-format", "stream-json",
+				"--verbose",
+			},
+			excludes: []string{"test prompt"},
 		},
 	}
 
@@ -295,6 +313,52 @@ func TestClaudeAgentRun(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "claude agent: start:") {
 			t.Errorf("error should mention claude agent start, got: %v", err)
+		}
+	})
+	t.Run("live steer writes prompt and messages to stdin", func(t *testing.T) {
+		dir := t.TempDir()
+		stdinFile := filepath.Join(dir, "stdin.txt")
+		output := `{"type":"result","cost_usd":0.01,"duration_ms":100}`
+		agent := setUpFakeClaude(t, exe, 0, output, "")
+		t.Setenv("_FAKE_CLAUDE_STDIN_FILE", stdinFile)
+
+		steerCh := make(chan string, 1)
+		ch, err := agent.Run(context.Background(), "the iteration prompt", claude.RunOptions{Steer: steerCh})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		steerCh <- "prefer the Edit tool"
+		// Closing the channel makes the writer close stdin, letting the fake
+		// process reach EOF, emit its result, and exit.
+		close(steerCh)
+		for range ch {
+		}
+
+		data, err := os.ReadFile(stdinFile)
+		if err != nil {
+			t.Fatalf("read captured stdin: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("expected 2 stdin JSON lines (prompt + steer), got %d: %q", len(lines), data)
+		}
+		for i, want := range []string{"the iteration prompt", "prefer the Edit tool"} {
+			var msg struct {
+				Type    string `json:"type"`
+				Message struct {
+					Role    string `json:"role"`
+					Content string `json:"content"`
+				} `json:"message"`
+			}
+			if err := json.Unmarshal([]byte(lines[i]), &msg); err != nil {
+				t.Fatalf("stdin line %d is not valid JSON: %v", i, err)
+			}
+			if msg.Type != "user" || msg.Message.Role != "user" {
+				t.Errorf("stdin line %d: expected user message, got type=%q role=%q", i, msg.Type, msg.Message.Role)
+			}
+			if msg.Message.Content != want {
+				t.Errorf("stdin line %d: content = %q, want %q", i, msg.Message.Content, want)
+			}
 		}
 	})
 }

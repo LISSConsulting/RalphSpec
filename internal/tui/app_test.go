@@ -59,7 +59,7 @@ func (c *mockLoopController) IsRunning() bool { return c.running }
 
 func newTestModel() Model {
 	ch := make(chan loop.LogEntry, 1)
-	return New(ch, nil, "", "TestProject", "/tmp/proj", nil, nil, nil)
+	return New(ch, nil, "", "TestProject", "/tmp/proj", nil, nil, nil, nil)
 }
 
 func TestNew_Defaults(t *testing.T) {
@@ -298,7 +298,7 @@ func TestUpdate_EditSpecRequest_WithEditor(t *testing.T) {
 func TestUpdate_CreateSpecRequest_ReturnsRefresh(t *testing.T) {
 	dir := t.TempDir()
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "TestProject", dir, nil, nil, nil)
+	m := New(ch, nil, "", "TestProject", dir, nil, nil, nil, nil)
 
 	_, cmd := m.Update(panels.CreateSpecRequestMsg{Name: "my-spec"})
 	if cmd == nil {
@@ -348,7 +348,7 @@ func TestUpdate_SpecsRefreshed_UpdatesPanel(t *testing.T) {
 func TestUpdate_StopRequested(t *testing.T) {
 	stopped := false
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "", "", nil, func() { stopped = true }, nil)
+	m := New(ch, nil, "", "", "", nil, func() { stopped = true }, nil, nil)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	m2 := updated.(Model)
@@ -427,7 +427,7 @@ func TestHandleIterationSelected_WithReader(t *testing.T) {
 		},
 	}
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, reader, "", "Proj", "/tmp", nil, nil, nil)
+	m := New(ch, reader, "", "Proj", "/tmp", nil, nil, nil, nil)
 
 	_, cmd := m.Update(panels.IterationSelectedMsg{Number: 1})
 	if cmd == nil {
@@ -467,7 +467,7 @@ func TestUpdate_Key_LoopControl_NoController(t *testing.T) {
 func TestUpdate_Key_Build_StartsLoop(t *testing.T) {
 	ctrl := &mockLoopController{}
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl)
+	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl, nil)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
 	m2 := updated.(Model)
@@ -483,7 +483,7 @@ func TestUpdate_Key_Build_StartsLoop(t *testing.T) {
 func TestUpdate_Key_Roam_StartsLoop(t *testing.T) {
 	ctrl := &mockLoopController{}
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl)
+	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl, nil)
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
 	m2 := updated.(Model)
@@ -499,7 +499,7 @@ func TestUpdate_Key_Roam_StartsLoop(t *testing.T) {
 func TestUpdate_Key_Stop_StopsLoop(t *testing.T) {
 	ctrl := &mockLoopController{running: true}
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl)
+	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl, nil)
 
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 
@@ -569,7 +569,7 @@ func TestView_Help_ContainsKeyBindings(t *testing.T) {
 func TestUpdate_Key_Build_NoopWhenRunning(t *testing.T) {
 	ctrl := &mockLoopController{running: true}
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl)
+	m := New(ch, nil, "", "Proj", "", nil, nil, ctrl, nil)
 	m.loopState = StateBuilding
 
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
@@ -589,7 +589,7 @@ func TestReadSpecContent_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "TestProject", dir, nil, nil, nil)
+	m := New(ch, nil, "", "TestProject", dir, nil, nil, nil, nil)
 
 	got := m.readSpecContent(spec.SpecFile{Name: "alpha", Path: "specs/alpha.md"})
 	if got != want {
@@ -599,7 +599,7 @@ func TestReadSpecContent_Success(t *testing.T) {
 
 func TestReadSpecContent_NotFound(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "TestProject", "", nil, nil, nil)
+	m := New(ch, nil, "", "TestProject", "", nil, nil, nil, nil)
 
 	got := m.readSpecContent(spec.SpecFile{Name: "missing", Path: "/nonexistent/path/missing.md"})
 	if !strings.Contains(got, "cannot read") {
@@ -617,7 +617,7 @@ func TestUpdate_SpecSelected_ShowsContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "TestProject", dir, nil, nil, nil)
+	m := New(ch, nil, "", "TestProject", dir, nil, nil, nil, nil)
 
 	// Set a large window so content is renderable.
 	updated0, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -781,7 +781,7 @@ func TestUpdate_EditSpecRequest_AbsolutePath(t *testing.T) {
 	t.Setenv("EDITOR", "true")
 	dir := t.TempDir()
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", dir, nil, nil, nil)
+	m := New(ch, nil, "", "Proj", dir, nil, nil, nil, nil)
 	// Use an absolute path — it must not be re-joined with workDir.
 	absPath := dir + "/specs/absolute.md"
 	_, cmd := m.Update(panels.EditSpecRequestMsg{Path: absPath})
@@ -1033,7 +1033,7 @@ func TestWithOrchestrator_SetsFields(t *testing.T) {
 // listener when an orchestrator is wired in.
 func TestInit_WithOrchestrator_ReturnsBatchCmd(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	cmd := m.Init()
 	if cmd == nil {
@@ -1045,7 +1045,7 @@ func TestInit_WithOrchestrator_ReturnsBatchCmd(t *testing.T) {
 // event properly resizes the worktrees panel when orchestrator is active.
 func TestHandleWindowSize_WithOrchestrator_DoesNotPanic(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m2 := updated.(Model)
@@ -1056,7 +1056,7 @@ func TestHandleWindowSize_WithOrchestrator_DoesNotPanic(t *testing.T) {
 // in the per-branch log map.
 func TestHandleTaggedEvent_AccumulatesLog(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	// Resize so layout is not TooSmall.
 	updated0, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -1077,7 +1077,7 @@ func TestHandleTaggedEvent_AccumulatesLog(t *testing.T) {
 // the event's branch the line is appended to the main view.
 func TestHandleTaggedEvent_LiveAppend(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	updated0, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = updated0.(Model)
@@ -1093,7 +1093,7 @@ func TestHandleTaggedEvent_LiveAppend(t *testing.T) {
 // on an unknown branch are silently ignored (no panic, error is discarded).
 func TestHandleWorktreeAction_DoesNotPanic(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 
 	for _, action := range []string{"stop", "merge", "clean"} {
@@ -1118,7 +1118,7 @@ func TestHandleWorktreeAction_NilOrch_NoOp(t *testing.T) {
 // and the accumulated log is loaded into the main view.
 func TestHandleWorktreeSelected_SetsActiveBranch(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	updated0, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = updated0.(Model)
@@ -1150,7 +1150,7 @@ func TestHandleWorktreeSelected_SetsActiveBranch(t *testing.T) {
 func TestKey_W_WithOrchestrator_FocusSpecs_LaunchAttempted(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
 	sf := []spec.SpecFile{{Name: "feat-a", Dir: "specs/feat-a", IsDir: true, Path: "specs/feat-a/spec.md"}}
-	m := New(ch, nil, "", "Proj", "", sf, nil, nil)
+	m := New(ch, nil, "", "Proj", "", sf, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	m.focus = FocusSpecs
 
@@ -1190,7 +1190,7 @@ func TestKey_5_NoOp(t *testing.T) {
 // 4-panel even when an orchestrator is active (worktrees are in secondary tab).
 func TestNextFocus_WithOrchestrator_4Panel(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	m.focus = FocusIterations
 
@@ -1205,7 +1205,7 @@ func TestNextFocus_WithOrchestrator_4Panel(t *testing.T) {
 // with the worktrees tab in the secondary panel.
 func TestView_WithOrchestrator_DoesNotPanic(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m2 := updated.(Model)
@@ -1238,7 +1238,7 @@ func TestAgentsToEntries_WithAgents(t *testing.T) {
 func TestHandleTaggedEvent_NilMapInit(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
 	orch := newTestOrch()
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	// Set orch but skip WithOrchestrator to leave worktreeLogsByBranch nil.
 	m.orch = orch
 
@@ -1444,7 +1444,7 @@ func TestWaitForTaggedEvent_SendsEvent(t *testing.T) {
 // is routed to the Secondary panel's Regent tab in addition to the branch log.
 func TestHandleTaggedEvent_LogRegent(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
-	m := New(ch, nil, "", "Proj", "", nil, nil, nil)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	updated0, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = updated0.(Model)
@@ -1468,7 +1468,7 @@ func TestHandleTaggedEvent_LogRegent(t *testing.T) {
 func TestKey_W_WithOrch_WrongFocus_NoOp(t *testing.T) {
 	ch := make(chan loop.LogEntry, 1)
 	sf := []spec.SpecFile{{Name: "feat-a", Dir: "specs/feat-a", IsDir: true, Path: "specs/feat-a/spec.md"}}
-	m := New(ch, nil, "", "Proj", "", sf, nil, nil)
+	m := New(ch, nil, "", "Proj", "", sf, nil, nil, nil)
 	m = m.WithOrchestrator(newTestOrch())
 	m.focus = FocusMain // not FocusSpecs
 
@@ -1476,6 +1476,180 @@ func TestKey_W_WithOrch_WrongFocus_NoOp(t *testing.T) {
 	_ = updated.(Model)
 	if cmd != nil {
 		t.Error("W key with wrong focus should return nil cmd")
+	}
+}
+
+// TestSteerInputMode covers the 'i' → type → Enter submit flow.
+func TestSteerInputMode(t *testing.T) {
+	ch := make(chan loop.LogEntry, 1)
+	var sent []string
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, func(msg string) bool {
+		sent = append(sent, msg)
+		return true
+	})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m = updated.(Model)
+	if !m.steerMode {
+		t.Fatal("expected steerMode after pressing i")
+	}
+
+	for _, r := range "fix the flaky test" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(Model)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.steerMode {
+		t.Error("steerMode should close on Enter")
+	}
+	if len(sent) != 1 || sent[0] != "fix the flaky test" {
+		t.Errorf("sent = %v, want [fix the flaky test]", sent)
+	}
+	if m.steerFeedback != "steer queued" {
+		t.Errorf("steerFeedback = %q, want %q", m.steerFeedback, "steer queued")
+	}
+}
+
+// TestSteerInputMode_Esc covers cancelling the steer input without sending.
+func TestSteerInputMode_Esc(t *testing.T) {
+	ch := make(chan loop.LogEntry, 1)
+	var sent []string
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, func(msg string) bool {
+		sent = append(sent, msg)
+		return true
+	})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+
+	if m.steerMode {
+		t.Error("steerMode should close on Esc")
+	}
+	if len(sent) != 0 {
+		t.Errorf("Esc must not send; sent = %v", sent)
+	}
+}
+
+// TestSteerInputMode_BufferFull covers the non-blocking drop feedback.
+func TestSteerInputMode_BufferFull(t *testing.T) {
+	ch := make(chan loop.LogEntry, 1)
+	m := New(ch, nil, "", "Proj", "", nil, nil, nil, func(string) bool { return false })
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if !strings.Contains(m.steerFeedback, "dropped") {
+		t.Errorf("steerFeedback = %q, want drop warning", m.steerFeedback)
+	}
+}
+
+// TestSteerInputMode_DisabledWithoutSender verifies 'i' is a no-op when no
+// steer channel is wired (e.g. nil requestSteer).
+func TestSteerInputMode_DisabledWithoutSender(t *testing.T) {
+	m := newTestModel()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m2 := updated.(Model)
+	if m2.steerMode {
+		t.Error("steerMode must not activate without requestSteer")
+	}
+}
+
+// TestSessionPicker_Flow covers I → list → enter → past iterations loaded.
+func TestSessionPicker_Flow(t *testing.T) {
+	dir := t.TempDir()
+	logsDir := filepath.Join(dir, ".ralph", "logs")
+	s, err := store.NewJSONL(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 1, Agent: "claude", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogText, Iteration: 1, Message: "old thought", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: 1, CostUSD: 0.1, Timestamp: now})
+	sum, err := s.SessionSummary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := make(chan loop.LogEntry, 1)
+	m := New(ch, nil, "", "Proj", dir, nil, nil, nil, nil)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = updated.(Model)
+
+	// I → sessionsLoadedMsg → picker opens with the past session listed.
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("I")})
+	m = updated.(Model)
+	if cmd == nil {
+		t.Fatal("I should return a session-list command")
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+	if !m.sessionPicker {
+		t.Fatal("session picker should open")
+	}
+	if len(m.sessions) != 1 || m.sessions[0].SessionID != sum.SessionID {
+		t.Fatalf("sessions = %+v", m.sessions)
+	}
+	if view := m.View(); !strings.Contains(view, "Load Session") {
+		t.Errorf("picker overlay should render; got:\n%s", view)
+	}
+
+	// Select the past session (cursor 1) and load it.
+	m.sessionCursor = 1
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+
+	if m.activeSession != sum.SessionID {
+		t.Errorf("activeSession = %q, want %q", m.activeSession, sum.SessionID)
+	}
+	sel := m.iterationsPanel.SelectedIteration()
+	if sel == nil || sel.Number != 1 {
+		t.Fatalf("past iteration not loaded into panel: %+v", sel)
+	}
+	entries, err := m.storeReader.IterationLog(1)
+	if err != nil || len(entries) != 3 {
+		t.Fatalf("storeReader should read past session log: entries=%d err=%v", len(entries), err)
+	}
+	// Close the read handle so Windows can clean up the temp dir.
+	if c, ok := m.storeReader.(interface{ Close() error }); ok {
+		defer func() { _ = c.Close() }()
+	}
+
+	// Enter again on cursor 0 restores the live reader.
+	m.sessionCursor = 0
+	updated, cmd = m.loadSession(0)
+	m = updated.(Model)
+	updated, _ = m.Update(cmd())
+	m = updated.(Model)
+	if m.activeSession != "" {
+		t.Errorf("activeSession = %q after restoring live session", m.activeSession)
+	}
+}
+
+// TestSessionPicker_Esc covers cancelling the picker without loading.
+func TestSessionPicker_Esc(t *testing.T) {
+	m := newTestModel()
+	m.sessionPicker = true
+	m.sessions = []store.SessionSummary{{SessionID: "x"}}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m2 := updated.(Model)
+	if m2.sessionPicker {
+		t.Error("esc should close the session picker")
 	}
 }
 

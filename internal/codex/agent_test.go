@@ -54,6 +54,13 @@ func TestBuildArgs(t *testing.T) {
 	if containsArg(args, "--full-auto") {
 		t.Fatalf("args %v should not use --full-auto because it still applies Codex sandbox constraints", args)
 	}
+
+	// Live steer must not alter the Codex command line — steering is a
+	// best-effort stdin write, not a CLI flag.
+	steerArgs := agent.buildArgs("test prompt", claude.RunOptions{Dir: "/tmp/project", Model: "gpt-5", Steer: make(chan string)})
+	if strings.Join(args, " ") != strings.Join(steerArgs, " ") {
+		t.Errorf("steer must not change codex args: %v vs %v", args, steerArgs)
+	}
 }
 
 func TestAgentRun(t *testing.T) {
@@ -123,6 +130,21 @@ func TestAgentRun(t *testing.T) {
 		if !strings.Contains(err.Error(), "codex agent: start:") {
 			t.Fatalf("unexpected error: %v", err)
 		}
+	})
+
+	t.Run("steer channel drains without deadlock", func(t *testing.T) {
+		output := `{"type":"result","cost_usd":0.01,"duration_ms":50,"subtype":"success"}`
+		agent := setUpFakeCodex(t, exe, 0, output, "")
+
+		steerCh := make(chan string, 4)
+		steerCh <- "keep going"
+		ch, err := agent.Run(context.Background(), "test", claude.RunOptions{Steer: steerCh})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for range ch {
+		}
+		close(steerCh)
 	})
 }
 

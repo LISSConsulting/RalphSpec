@@ -56,6 +56,7 @@ type MainView struct {
 	height       int
 	activeTab    MainTab
 	outputFilter OutputFilter
+	pendingG     bool // true after a lone 'g' keypress (awaiting second 'g')
 }
 
 var mainTabLabels = []string{"Output", "Spec", "Iteration", "Summary"}
@@ -236,7 +237,11 @@ func (v MainView) Update(msg tea.Msg) (MainView, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+		if key != "g" {
+			v.pendingG = false
+		}
+		switch key {
 		case "]":
 			v.tabbar = v.tabbar.Next()
 			v.activeTab = MainTab(v.tabbar.Active())
@@ -253,6 +258,17 @@ func (v MainView) Update(msg tea.Msg) (MainView, tea.Cmd) {
 				v.filterbar = v.filterbar.Prev()
 				v.outputFilter = OutputFilter(v.filterbar.Active())
 			}
+		case "g":
+			if v.pendingG {
+				lv := v.activeLogView()
+				*lv = lv.GotoTop()
+				v.pendingG = false
+			} else {
+				v.pendingG = true
+			}
+		case "G":
+			lv := v.activeLogView()
+			*lv = lv.GotoBottom()
 		case "f":
 			if v.activeTab != TabIterationSummary {
 				lv := v.activeLogView()

@@ -335,6 +335,42 @@ func TestResolveAgent(t *testing.T) {
 	}
 }
 
+func TestHarnessExecutable(t *testing.T) {
+	cfg := config.Defaults()
+	if got := harnessExecutable(&cfg, config.AgentClaude); got != "claude" {
+		t.Errorf("default claude harness = %q", got)
+	}
+	if got := harnessExecutable(&cfg, config.AgentCodex); got != "codex" {
+		t.Errorf("default codex harness = %q", got)
+	}
+
+	cfg.Harness.Claude = "claude-kimi"
+	cfg.Harness.Codex = "codex-minimax"
+	if got := harnessExecutable(&cfg, config.AgentClaude); got != "claude-kimi" {
+		t.Errorf("override claude harness = %q", got)
+	}
+	if got := harnessExecutable(&cfg, config.AgentCodex); got != "codex-minimax" {
+		t.Errorf("override codex harness = %q", got)
+	}
+}
+
+func TestBuildAgent_HarnessOverride(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Harness.Claude = "claude-kimi"
+
+	agent, err := buildAgent(&cfg, config.AgentClaude)
+	if err != nil {
+		t.Fatalf("buildAgent: %v", err)
+	}
+	ca, ok := agent.(*loop.ClaudeAgent)
+	if !ok {
+		t.Fatalf("expected *loop.ClaudeAgent, got %T", agent)
+	}
+	if ca.Executable != "claude-kimi" {
+		t.Errorf("Executable = %q, want claude-kimi", ca.Executable)
+	}
+}
+
 func TestValidateAgentFlow(t *testing.T) {
 	if err := validateAgentFlow(config.AgentCodex, true, false); err != nil {
 		t.Fatalf("codex worktree should be supported, got %v", err)

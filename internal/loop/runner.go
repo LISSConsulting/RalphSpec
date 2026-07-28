@@ -4,7 +4,9 @@ package loop
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -49,11 +51,26 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 		return nil, fmt.Errorf("claude agent: stdout pipe: %w", err)
 	}
 
+	// Live steering: keep a stdin pipe open so operator messages can be
+	// delivered mid-turn as stream-JSON user messages (SDK pipe mode).
+	var stdin io.WriteCloser
+	if opts.Steer != nil {
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return nil, fmt.Errorf("claude agent: stdin pipe: %w", err)
+		}
+	}
+
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("claude agent: start: %w", err)
+	}
+
+	stdinDone := make(chan struct{})
+	if stdin != nil {
+		go steerStdin(stdin, prompt, opts.Steer, stdinDone, ctx)
 	}
 
 	parsed := claude.ParseStream(stdout)
@@ -74,17 +91,75 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 				ch <- claude.ErrorEvent(msg)
 			}
 		}
+		close(stdinDone)
 	}()
 
 	return ch, nil
 }
 
+// steerStdin writes the iteration prompt as the first stream-JSON user
+// message, then forwards each operator steering message as it arrives. It
+// stops on context cancellation, channel close, process exit (stdinDone), or
+// the first write error — a dead pipe must never fail the iteration.
+func steerStdin(stdin io.WriteCloser, prompt string, steer <-chan string, done <-chan struct{}, ctx context.Context) {
+	defer func() { _ = stdin.Close() }()
+	if !writeUserMessage(stdin, prompt) {
+		return
+	}
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		case msg, ok := <-steer:
+			if !ok {
+				return
+			}
+			if !writeUserMessage(stdin, msg) {
+				return
+			}
+		}
+	}
+}
+
+// writeUserMessage encodes one stream-JSON user message line. Returns false
+// when the pipe is broken.
+func writeUserMessage(w io.Writer, text string) bool {
+	payload := map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role":    "user",
+			"content": text,
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return false
+	}
+	_, err = w.Write(append(data, '\n'))
+	return err == nil
+}
+
 // buildArgs constructs the CLI arguments for a Claude invocation.
+// When live steering is enabled the prompt travels via stdin as a stream-JSON
+// user message, so -p is bare and --input-format stream-json is added (SDK
+// pipe mode). Otherwise the invocation is byte-identical to legacy behavior.
 func (a *ClaudeAgent) buildArgs(prompt string, opts claude.RunOptions) []string {
-	args := []string{
-		"-p", prompt,
-		"--output-format", "stream-json",
-		"--verbose",
+	var args []string
+	if opts.Steer != nil {
+		args = []string{
+			"-p",
+			"--output-format", "stream-json",
+			"--input-format", "stream-json",
+			"--verbose",
+		}
+	} else {
+		args = []string{
+			"-p", prompt,
+			"--output-format", "stream-json",
+			"--verbose",
+		}
 	}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)

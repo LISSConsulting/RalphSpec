@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
@@ -44,6 +45,7 @@ type Loop struct {
 	Dir              string          // working directory for prompt file resolution
 	PostIteration    func()          // optional: called after each iteration (e.g., test-gated rollback)
 	StopAfter        <-chan struct{} // optional: closed to request graceful stop after current iteration
+	Steer            <-chan string   // optional: operator steering messages; drained before each iteration
 	NotificationHook func(LogEntry)  // optional: called on every emitted event for external notifications
 	Roam             bool            // roam freely across the codebase (--roam flag)
 	Spec             string          // active spec name for prompt augmentation (empty = no augmentation)
@@ -113,7 +115,12 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 		default:
 		}
 
-		cost, subtype, commitsProduced, dirty, iterErr := l.iteration(ctx, i, maxIter, prompt, branch)
+		iterPrompt := prompt
+		if steers := l.drainSteers(); len(steers) > 0 {
+			iterPrompt = appendSteerSection(prompt, steers)
+		}
+
+		cost, subtype, commitsProduced, dirty, iterErr := l.iteration(ctx, i, maxIter, iterPrompt, branch)
 		if iterErr != nil {
 			return fmt.Errorf("loop: iteration %d: %w", i, iterErr)
 		}
@@ -187,6 +194,50 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 	return nil
 }
 
+// drainSteers consumes all pending operator steering messages without
+// blocking, emitting one LogSteer event per message. Returns the messages in
+// arrival order.
+func (l *Loop) drainSteers() []string {
+	if l.Steer == nil {
+		return nil
+	}
+	var msgs []string
+	for {
+		select {
+		case msg, ok := <-l.Steer:
+			if !ok {
+				return msgs
+			}
+			msg = strings.TrimSpace(msg)
+			if msg == "" {
+				continue
+			}
+			msgs = append(msgs, msg)
+			l.emit(LogEntry{
+				Kind:    LogSteer,
+				Message: msg,
+				Agent:   l.agentName(),
+			})
+		default:
+			return msgs
+		}
+	}
+}
+
+// appendSteerSection appends operator steering messages to a prompt so the
+// agent sees them as explicit human direction for this iteration.
+func appendSteerSection(prompt string, msgs []string) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(prompt, "\n"))
+	b.WriteString("\n\n## User steering\n\nThe operator sent the following message(s) while the loop was running. Treat them as direct instructions for this iteration:\n")
+	for _, msg := range msgs {
+		b.WriteString("\n- ")
+		b.WriteString(msg)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch string) (cost float64, subtype string, commitsProduced bool, dirty bool, err error) {
 	l.emit(LogEntry{
 		Kind:      LogIterStart,
@@ -241,12 +292,16 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		Message: fmt.Sprintf("Running %s...", l.agentName()),
 	})
 	agentStarted := l.nowTime()
-	events, agentErr := l.Agent.Run(ctx, prompt, claude.RunOptions{
+	runOpts := claude.RunOptions{
 		Model:                 l.agentModel(),
 		MaxTurns:              l.agentMaxTurns(),
 		DangerSkipPermissions: l.agentDangerSkipPermissions(),
 		Dir:                   l.Dir,
-	})
+	}
+	if l.Config != nil && l.Config.Agent.StdinSteer {
+		runOpts.Steer = l.Steer
+	}
+	events, agentErr := l.Agent.Run(ctx, prompt, runOpts)
 	if agentErr != nil {
 		return 0, "", false, false, fmt.Errorf("start %s: %w", l.agentName(), agentErr)
 	}

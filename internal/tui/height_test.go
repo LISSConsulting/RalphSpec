@@ -28,7 +28,7 @@ func TestViewHeight_MatchesTerminal(t *testing.T) {
 	}
 
 	for _, sz := range []struct{ w, h int }{{80, 24}, {120, 30}, {160, 40}, {200, 50}} {
-		m := New(ch, nil, "#7D56F4", "TestProject", "/tmp/project", specs, nil, nil)
+		m := New(ch, nil, "#7D56F4", "TestProject", "/tmp/project", specs, nil, nil, nil)
 		updated, _ := m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
 		m = updated.(Model)
 		lines := strings.Split(m.View(), "\n")

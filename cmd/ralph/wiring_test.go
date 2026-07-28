@@ -718,7 +718,7 @@ func TestFinishTUI_Success(t *testing.T) {
 	events := make(chan loop.LogEntry)
 	close(events) // simulate: loop finished before TUI starts
 
-	model := tui.New(events, nil, "", "", dir, nil, nil, nil)
+	model := tui.New(events, nil, "", "", dir, nil, nil, nil, nil)
 	program := tea.NewProgram(model,
 		tea.WithInput(strings.NewReader("q")),
 		tea.WithOutput(io.Discard),

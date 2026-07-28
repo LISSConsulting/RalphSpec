@@ -165,6 +165,9 @@ func (t Theme) RenderLogLine(entry loop.LogEntry, width int) string {
 	case loop.LogRegent:
 		return fmt.Sprintf("%s  %s", ts, regentStyle.Render("🛡️  Regent: "+singleLine(entry.Message)))
 
+	case loop.LogSteer:
+		return fmt.Sprintf("%s  %s", ts, t.gitStyle.Render("🧭 Steer: "+singleLine(entry.Message)))
+
 	default:
 		return fmt.Sprintf("%s  %s", ts, infoStyle.Render(singleLine(entry.Message)))
 	}

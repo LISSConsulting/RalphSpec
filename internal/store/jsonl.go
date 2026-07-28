@@ -182,6 +182,99 @@ func EnforceRetention(dir string, maxKeep int) error {
 	return nil
 }
 
+// OpenSession opens an existing session JSONL log read-only and rebuilds the
+// in-memory index by scanning the file. The returned reader must not be used
+// for writes. Caller must Close.
+func OpenSession(path string) (*JSONL, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("store: open session %q: %w", path, err)
+	}
+	j := &JSONL{
+		file:      f,
+		idx:       newFileIndex(),
+		sessionID: strings.TrimSuffix(filepath.Base(path), ".jsonl"),
+	}
+	if err := j.rebuildIndex(); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return j, nil
+}
+
+// rebuildIndex scans the whole file and replays each entry through the index,
+// tracking byte offsets so IterationLog ReadAt lookups work. It also derives
+// session metadata (startedAt, branch, agent, lastCommit).
+func (j *JSONL) rebuildIndex() error {
+	if _, err := j.file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("store: seek: %w", err)
+	}
+	data, err := io.ReadAll(j.file)
+	if err != nil {
+		return fmt.Errorf("store: read session: %w", err)
+	}
+	var offset int64
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		lineLen := int64(len(line)) + 1
+		if len(line) > 0 {
+			var e loop.LogEntry
+			if err := json.Unmarshal(line, &e); err == nil {
+				j.idx.onAppend(e, offset, lineLen)
+				if j.startedAt.IsZero() && !e.Timestamp.IsZero() {
+					j.startedAt = e.Timestamp
+				}
+				if e.Branch != "" {
+					j.branch = e.Branch
+				}
+				if e.Commit != "" {
+					j.lastCommit = e.Commit
+				}
+				if e.Agent != "" {
+					j.agent = e.Agent
+				}
+			}
+		}
+		offset += lineLen
+	}
+	return nil
+}
+
+// ListSessions returns summaries for every session log in dir, newest first.
+// Unreadable or malformed files are skipped. Returns nil when dir does not
+// exist or contains no logs.
+func ListSessions(dir string) ([]SessionSummary, error) {
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: read dir %q: %w", dir, err)
+	}
+
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
+			files = append(files, e.Name())
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(files))) // timestamp-prefixed → newest first
+
+	var sessions []SessionSummary
+	for _, name := range files {
+		j, err := OpenSession(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		sum, err := j.SessionSummary()
+		_ = j.Close()
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, sum)
+	}
+	return sessions, nil
+}
+
 // SessionSummary returns metadata about the current session derived from
 // the in-memory iteration index.
 func (j *JSONL) SessionSummary() (SessionSummary, error) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -31,11 +32,29 @@ func (a *Agent) Run(ctx context.Context, prompt string, opts claude.RunOptions) 
 	if err != nil {
 		return nil, fmt.Errorf("codex agent: stdout pipe: %w", err)
 	}
+
+	// Live steering: codex exec has no documented stdin protocol, so steer
+	// messages are written as plain-text lines on a best-effort basis. Write
+	// errors (e.g. process exit) are swallowed and never fail the iteration.
+	var stdin io.WriteCloser
+	if opts.Steer != nil {
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return nil, fmt.Errorf("codex agent: stdin pipe: %w", err)
+		}
+	}
+
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("codex agent: start: %w", err)
 	}
+
+	stdinDone := make(chan struct{})
+	if stdin != nil {
+		go drainSteerToStdin(stdin, opts.Steer, stdinDone, ctx)
+	}
+
 	parsed := ParseStream(stdout)
 	ch := make(chan claude.Event, 64)
 	go func() {
@@ -50,8 +69,31 @@ func (a *Agent) Run(ctx context.Context, prompt string, opts claude.RunOptions) 
 			}
 			ch <- claude.ErrorEvent(msg)
 		}
+		close(stdinDone)
 	}()
 	return ch, nil
+}
+
+// drainSteerToStdin forwards operator steering messages as plain-text lines.
+// Stops on context cancellation, channel close, process exit, or the first
+// write error.
+func drainSteerToStdin(stdin io.WriteCloser, steer <-chan string, done <-chan struct{}, ctx context.Context) {
+	defer func() { _ = stdin.Close() }()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		case msg, ok := <-steer:
+			if !ok {
+				return
+			}
+			if _, err := io.WriteString(stdin, msg+"\n"); err != nil {
+				return
+			}
+		}
+	}
 }
 
 func (a *Agent) buildArgs(prompt string, opts claude.RunOptions) []string {

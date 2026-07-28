@@ -79,8 +79,11 @@ func runWithRegentTUI(ctx context.Context, lp *loop.Loop, cfg *config.Config, gi
 	rgt := regent.New(cfg.Regent, dir, gitRunner, tuiEvents)
 	lp.PostIteration = rgt.RunPostIterationTests
 
+	steerCh := make(chan string, 32)
+	lp.Steer = steerCh
+
 	specFiles, _ := spec.List(dir)
-	model := tui.New(tuiEvents, sr, cfg.TUI.AccentColor, cfg.Project.Name, dir, specFiles, requestStop, nil)
+	model := tui.New(tuiEvents, sr, cfg.TUI.AccentColor, cfg.Project.Name, dir, specFiles, requestStop, nil, newSteerSender(steerCh))
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Forward loop events → regent state update → TUI
@@ -194,11 +197,14 @@ func runWithTUIAndState(ctx context.Context, lp *loop.Loop, dir string, gitRunne
 
 	lp.Events = loopEvents
 
+	steerCh := make(chan string, 32)
+	lp.Steer = steerCh
+
 	st := newStateTracker(dir, mode, lp.AgentType, gitRunner)
 	st.save()
 
 	specFiles, _ := spec.List(dir)
-	model := tui.New(tuiEvents, sr, accentColor, projectName, dir, specFiles, requestStop, nil)
+	model := tui.New(tuiEvents, sr, accentColor, projectName, dir, specFiles, requestStop, nil, newSteerSender(steerCh))
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Forward loop events → state tracking → TUI
@@ -308,6 +314,20 @@ func (s *stateTracker) finish(err error) {
 	s.save()
 }
 
+// newSteerSender returns a non-blocking steer enqueue used by the TUI's 'i'
+// input. Returns false when the buffer is full so the TUI can tell the
+// operator the message was dropped rather than silently blocking the UI.
+func newSteerSender(steerCh chan<- string) func(string) bool {
+	return func(msg string) bool {
+		select {
+		case steerCh <- msg:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
 // loopController implements tui.LoopController for dashboard mode.
 // It starts and stops loop runs in response to TUI key presses (b/p/R/x).
 type loopController struct {
@@ -316,6 +336,7 @@ type loopController struct {
 	gitRunner *git.Runner
 	sw        store.Writer
 	tuiSend   chan<- loop.LogEntry
+	steerCh   chan string
 	outerCtx  context.Context
 	mu        sync.Mutex
 	cancel    context.CancelFunc
@@ -389,7 +410,7 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 		return
 	}
 	if agent == nil {
-		agent, err = buildAgent(agentType)
+		agent, err = buildAgent(lc.cfg, agentType)
 		if err != nil {
 			lc.emitLoopError(err)
 			return
@@ -401,6 +422,7 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 		Git:       lc.gitRunner,
 		Config:    lc.cfg,
 		Dir:       lc.dir,
+		Steer:     lc.steerCh,
 	}
 	loopEvents := make(chan loop.LogEntry, 128)
 	lp.Events = loopEvents
@@ -456,17 +478,19 @@ func runDashboard(ctx context.Context, cfg *config.Config, dir string, sw store.
 	// Note: tuiEvents is intentionally never closed; the TUI exits when user presses q.
 
 	gitRunner := git.NewRunner(dir)
+	steerCh := make(chan string, 32)
 	ctrl := &loopController{
 		cfg:       cfg,
 		dir:       dir,
 		gitRunner: gitRunner,
 		sw:        sw,
 		tuiSend:   tuiEvents,
+		steerCh:   steerCh,
 		outerCtx:  ctx,
 	}
 
 	specFiles, _ := spec.List(dir)
-	model := tui.New(tuiEvents, sr, cfg.TUI.AccentColor, cfg.Project.Name, dir, specFiles, nil, ctrl)
+	model := tui.New(tuiEvents, sr, cfg.TUI.AccentColor, cfg.Project.Name, dir, specFiles, nil, ctrl, newSteerSender(steerCh))
 
 	// Wire orchestrator when worktree mode is enabled.
 	if cfg.Worktree.Enabled {

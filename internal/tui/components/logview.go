@@ -62,6 +62,20 @@ func (v LogView) ToggleFollow() LogView {
 	return v
 }
 
+// GotoTop scrolls to the first line and disables follow mode.
+func (v LogView) GotoTop() LogView {
+	v.follow = false
+	v.vp.GotoTop()
+	return v
+}
+
+// GotoBottom scrolls to the last line and enables follow mode.
+func (v LogView) GotoBottom() LogView {
+	v.follow = true
+	v.vp.GotoBottom()
+	return v
+}
+
 // SetSize resizes the log view to the given dimensions.
 func (v LogView) SetSize(w, h int) LogView {
 	v.width = w

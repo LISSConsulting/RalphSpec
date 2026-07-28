@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -63,6 +64,20 @@ type Model struct {
 	requestStop   func()
 	stopRequested bool
 
+	// Steering (nil = 'i' key disabled)
+	requestSteer  func(string) bool
+	steerMode     bool
+	steerInput    textinput.Model
+	steerFeedback string
+
+	// Past sessions ('I' picker)
+	liveReader    store.Reader // the session reader passed to New (live log)
+	liveSessionID string
+	sessions      []store.SessionSummary
+	sessionPicker bool
+	sessionCursor int
+	activeSession string // non-empty when viewing a past session's iterations
+
 	// Help overlay
 	helpVisible bool
 
@@ -83,7 +98,7 @@ type Model struct {
 // storeReader may be nil if no session log is available.
 // specFiles is the initial list of specs for the sidebar; nil is allowed.
 // requestStop, if non-nil, is called once when the user presses 's'.
-func New(events <-chan loop.LogEntry, storeReader store.Reader, accentColor, projectName, workDir string, specFiles []spec.SpecFile, requestStop func(), controller LoopController) Model {
+func New(events <-chan loop.LogEntry, storeReader store.Reader, accentColor, projectName, workDir string, specFiles []spec.SpecFile, requestStop func(), controller LoopController, requestSteer func(string) bool) Model {
 	now := time.Now()
 	th := NewTheme(accentColor)
 	layout := Calculate(80, 24)
@@ -97,9 +112,23 @@ func New(events <-chan loop.LogEntry, storeReader store.Reader, accentColor, pro
 		sessionBase = strings.TrimSpace(runGitOutput(workDir, "rev-parse", "HEAD"))
 	}
 
+	steerInput := textinput.New()
+	steerInput.Prompt = "steer> "
+	steerInput.Placeholder = "message the agent — Enter to send, Esc to cancel"
+	steerInput.CharLimit = 512
+
+	liveSessionID := ""
+	if storeReader != nil {
+		if sum, err := storeReader.SessionSummary(); err == nil {
+			liveSessionID = sum.SessionID
+		}
+	}
+
 	return Model{
 		events:          events,
 		storeReader:     storeReader,
+		liveReader:      storeReader,
+		liveSessionID:   liveSessionID,
 		specsPanel:      panels.NewSpecsPanel(specFiles, workDir, specsW, specsH),
 		iterationsPanel: panels.NewIterationsPanel(itersW, itersH),
 		mainView:        panels.NewMainView(mainW, mainH),
@@ -116,6 +145,8 @@ func New(events <-chan loop.LogEntry, storeReader store.Reader, accentColor, pro
 		workDir:         workDir,
 		sessionBase:     sessionBase,
 		requestStop:     requestStop,
+		requestSteer:    requestSteer,
+		steerInput:      steerInput,
 		controller:      controller,
 	}
 }
@@ -222,6 +253,42 @@ func initIterationsCmd(sr store.Reader) tea.Cmd {
 	}
 }
 
+// loadSessionsCmd lists past session logs for the session picker.
+func loadSessionsCmd(logsDir string) tea.Cmd {
+	return func() tea.Msg {
+		sessions, _ := store.ListSessions(logsDir)
+		return sessionsLoadedMsg{Sessions: sessions}
+	}
+}
+
+// loadSession switches the iterations panel to the picked session.
+// Cursor 0 is the live session; 1..N index into m.sessions.
+func (m Model) loadSession(cursor int) (tea.Model, tea.Cmd) {
+	if cursor == 0 {
+		reader := m.liveReader
+		return m, func() tea.Msg {
+			if reader == nil {
+				return sessionLoadedMsg{SessionID: ""}
+			}
+			summaries, err := reader.Iterations()
+			return sessionLoadedMsg{Reader: reader, Summaries: summaries, SessionID: "", Err: err}
+		}
+	}
+	s := m.sessions[cursor-1]
+	path := filepath.Join(m.workDir, ".ralph", "logs", s.SessionID+".jsonl")
+	return m, func() tea.Msg {
+		reader, err := store.OpenSession(path)
+		if err != nil {
+			return sessionLoadedMsg{Err: err}
+		}
+		summaries, err := reader.Iterations()
+		if err != nil {
+			return sessionLoadedMsg{Err: err}
+		}
+		return sessionLoadedMsg{Reader: reader, Summaries: summaries, SessionID: s.SessionID}
+	}
+}
+
 // tickCmd schedules the next one-second clock tick.
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -309,6 +376,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.iterationsPanel = m.iterationsPanel.AddIteration(s)
 		}
 		return m, nil
+	case sessionsLoadedMsg:
+		m.sessions = m.sessions[:0]
+		for _, s := range msg.Sessions {
+			if s.SessionID != m.liveSessionID {
+				m.sessions = append(m.sessions, s)
+			}
+		}
+		if len(m.sessions) == 0 && m.liveReader == nil {
+			m.mainView = m.mainView.AppendOutput(panels.OutputLine{
+				Rendered: m.theme.RenderLogLine(loop.LogEntry{Kind: loop.LogInfo, Message: "no past sessions found"}, m.layout.Main.Width),
+				Kind:     loop.LogInfo,
+			})
+			return m, nil
+		}
+		m.sessionPicker = true
+		m.sessionCursor = 0
+		return m, nil
+	case sessionLoadedMsg:
+		if msg.Err != nil {
+			m.mainView = m.mainView.AppendOutput(panels.OutputLine{
+				Rendered: m.theme.RenderLogLine(loop.LogEntry{Kind: loop.LogError, Message: fmt.Sprintf("session load failed: %v", msg.Err)}, m.layout.Main.Width),
+				Kind:     loop.LogError,
+			})
+			return m, nil
+		}
+		m.storeReader = msg.Reader
+		m.activeSession = msg.SessionID
+		itersW, itersH := innerDims(m.layout.Iterations)
+		panel := panels.NewIterationsPanel(itersW, itersH)
+		for _, s := range msg.Summaries {
+			panel = panel.AddIteration(s)
+		}
+		m.iterationsPanel = panel
+		label := "current session"
+		if msg.SessionID != "" {
+			label = "session " + msg.SessionID
+		}
+		m.mainView = m.mainView.AppendOutput(panels.OutputLine{
+			Rendered: m.theme.RenderLogLine(loop.LogEntry{Kind: loop.LogInfo, Message: "viewing " + label + " — press I to switch"}, m.layout.Main.Width),
+			Kind:     loop.LogInfo,
+		})
+		return m, nil
 	case panels.IterationSelectedMsg:
 		return m.handleIterationSelected(msg)
 	case iterationLogLoadedMsg:
@@ -324,6 +433,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
+	m.steerInput.Width = msg.Width - 10
 	m.layout = Calculate(msg.Width, msg.Height)
 	if !m.layout.TooSmall {
 		specsW, specsH := innerDims(m.layout.Specs)
@@ -346,14 +456,77 @@ func (m Model) nextFocus() FocusTarget { return m.focus.Next() }
 func (m Model) prevFocus() FocusTarget { return m.focus.Prev() }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Steer input mode absorbs all keys until Enter (send) or Esc (cancel).
+	if m.steerMode {
+		switch msg.String() {
+		case "enter":
+			text := strings.TrimSpace(m.steerInput.Value())
+			m.steerMode = false
+			m.steerInput.Blur()
+			m.steerInput.SetValue("")
+			if text != "" && m.requestSteer != nil {
+				if m.requestSteer(text) {
+					m.steerFeedback = "steer queued"
+				} else {
+					m.steerFeedback = "steer buffer full — message dropped"
+				}
+			}
+			return m, nil
+		case "esc":
+			m.steerMode = false
+			m.steerInput.Blur()
+			m.steerInput.SetValue("")
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.steerInput, cmd = m.steerInput.Update(msg)
+			return m, cmd
+		}
+	}
+	// Session picker absorbs navigation keys until Enter or Esc.
+	if m.sessionPicker {
+		switch msg.String() {
+		case "esc", "q":
+			m.sessionPicker = false
+			return m, nil
+		case "j", "down":
+			if m.sessionCursor < len(m.sessions) {
+				m.sessionCursor++
+			}
+			return m, nil
+		case "k", "up":
+			if m.sessionCursor > 0 {
+				m.sessionCursor--
+			}
+			return m, nil
+		case "enter":
+			sel := m.sessionCursor
+			m.sessionPicker = false
+			return m.loadSession(sel)
+		}
+		return m, nil
+	}
 	// Help overlay absorbs the key press to dismiss it.
 	if m.helpVisible {
 		m.helpVisible = false
 		return m, nil
 	}
+	m.steerFeedback = ""
 	switch msg.String() {
 	case "?":
 		m.helpVisible = true
+		return m, nil
+	case "I":
+		if m.workDir != "" {
+			return m, loadSessionsCmd(filepath.Join(m.workDir, ".ralph", "logs"))
+		}
+		return m, nil
+	case "i":
+		if m.requestSteer != nil {
+			m.steerMode = true
+			m.steerInput.Width = m.width - 10
+			m.steerInput.Focus()
+		}
 		return m, nil
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -494,7 +667,9 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 		if m.loopState.CanTransitionTo(next) {
 			m.loopState = next
 		}
-		m.iterationsPanel = m.iterationsPanel.SetCurrent(entry.Iteration)
+		if m.activeSession == "" {
+			m.iterationsPanel = m.iterationsPanel.SetCurrent(entry.Iteration)
+		}
 
 	case loop.LogIterComplete:
 		// Accumulate cost immediately so the header total updates before the
@@ -510,7 +685,9 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 			Subtype:  entry.Subtype,
 			Commit:   entry.Commit,
 		}
-		m.iterationsPanel = m.iterationsPanel.AddIteration(summary).SetCurrent(0)
+		if m.activeSession == "" {
+			m.iterationsPanel = m.iterationsPanel.AddIteration(summary).SetCurrent(0)
+		}
 		m.secondary = m.secondary.AddIteration(summary)
 
 	case loop.LogDone, loop.LogStopped, loop.LogSpecComplete, loop.LogSweepComplete:
@@ -731,6 +908,33 @@ func renderIterationSummary(s store.IterationSummary) []string {
 	return lines
 }
 
+// renderSessionPicker renders the centered past-session picker overlay.
+func (m Model) renderSessionPicker() string {
+	lines := []string{
+		"Load Session",
+		"",
+	}
+	entries := []string{"current session (live)"}
+	for _, s := range m.sessions {
+		started := "unknown start"
+		if !s.StartedAt.IsZero() {
+			started = s.StartedAt.Format("2006-01-02 15:04")
+		}
+		entries = append(entries, fmt.Sprintf("%s  %s  %s  %s  %d iters  $%.2f",
+			s.SessionID, started, s.Agent, s.Branch, s.Iterations, s.TotalCost))
+	}
+	for i, e := range entries {
+		if i == m.sessionCursor {
+			lines = append(lines, m.theme.gitStyle.Bold(true).Render("> "+e))
+		} else {
+			lines = append(lines, "  "+e)
+		}
+	}
+	lines = append(lines, "", "  j/k navigate · enter load · esc cancel")
+	box := m.theme.AccentBorderStyle().Padding(1, 3).Render(strings.Join(lines, "\n"))
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+
 // renderHelp renders a centered keybinding reference overlay.
 func (m Model) renderHelp() string {
 	lines := []string{
@@ -740,6 +944,7 @@ func (m Model) renderHelp() string {
 		"    ?           Show / hide this help",
 		"    q / ctrl+c  Quit",
 		"    s           Stop loop after current iteration",
+		"    i           Steer the agent (queues a message)",
 		"    tab         Cycle panel focus forward",
 		"    shift+tab   Cycle panel focus backward",
 		"    1-4         Jump to Specs / Iterations / Main / Secondary",
@@ -759,11 +964,13 @@ func (m Model) renderHelp() string {
 		"  ITERATIONS PANEL",
 		"    j / k       Navigate iterations",
 		"    enter       Open iteration log",
+		"    I           Load a past session",
 		"",
 		"  MAIN PANEL",
 		"    f           Toggle follow (auto-scroll)",
 		"    [ / ]       Cycle tabs",
 		"    { / }       Cycle output filters (All/Thinking/Commands/Edits/Diff)",
+		"    gg / G      Scroll to top / bottom",
 		"    ctrl+u/d    Page up / down",
 		"    j / k       Scroll line up / down",
 		"",
@@ -793,6 +1000,10 @@ func (m Model) View() string {
 		return m.renderHelp()
 	}
 
+	if m.sessionPicker {
+		return m.renderSessionPicker()
+	}
+
 	header := panels.RenderHeader(panels.HeaderProps{
 		ProjectName: m.projectName,
 		WorkDir:     m.workDir,
@@ -814,6 +1025,11 @@ func (m Model) View() string {
 		StopRequested: m.stopRequested,
 		StateLabel:    m.loopState.Label(),
 	}, m.layout.Footer.Width)
+	if m.steerMode {
+		footer = m.steerInput.View()
+	} else if m.steerFeedback != "" {
+		footer = infoStyle.Width(m.layout.Footer.Width).Render(m.steerFeedback)
+	}
 
 	// Left sidebar: specs (top) + iterations (bottom)
 	specsW, specsH := innerDims(m.layout.Specs)
