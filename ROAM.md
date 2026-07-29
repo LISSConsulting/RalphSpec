@@ -13,6 +13,7 @@ Read these sources using parallel subagents before making changes:
 
 Find and complete one high-leverage improvement per iteration. Good roam work includes:
 - Verified spec drift or missing behavior found by comparing `specs/` against implementation
+- Unchecked `tasks.md` boxes in recently completed specs (`tasks.md` checkboxes are bookkeeping, not spec text — reconcile them)
 - Bugs, flaky tests, failing tests, weak coverage, or untested edge cases
 - Stale README/help text/docs, outdated examples, or misleading comments
 - TODO/FIXME/HACK/XXX items with clear, contained fixes
@@ -22,7 +23,7 @@ Find and complete one high-leverage improvement per iteration. Good roam work in
 ## Constraints
 
 - Search before assuming. Confirm every issue from source, tests, docs, or command output.
-- Do not modify `specs/` unless the user explicitly asks.
+- Do not modify `specs/` other than `tasks.md` checkbox reconciliation unless the user explicitly asks.
 - Avoid broad rewrites, aesthetic churn, placeholder code, and unrelated changes.
 - Prefer the smallest complete fix that leaves the repository healthier.
 - Keep @CHRONICLE.md compact. Record unresolved blockers, newly discovered follow-ups, and current decisions; avoid replaying completed history that already exists in git and JSONL logs.

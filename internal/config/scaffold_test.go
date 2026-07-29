@@ -112,7 +112,7 @@ func TestScaffoldProject(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{`name = "Custom"`, `[agent]`, `type = "claude"`, `[roam]`, `prompt_file = "ROAM.md"`, `focus = ""`, `[worktree]`, `max_parallel = 5`} {
+		for _, want := range []string{`name = "Custom"`, `[agent]`, `type = "claude"`, `stdin_steer = false`, `[harness]`, `claude = "claude"`, `codex = "codex"`, `[roam]`, `prompt_file = "ROAM.md"`, `focus = ""`, `[worktree]`, `max_parallel = 5`} {
 			if !strings.Contains(string(updatedConfig), want) {
 				t.Errorf("updated ralph.toml should contain %q", want)
 			}
@@ -444,6 +444,22 @@ func TestScaffoldProject(t *testing.T) {
 			t.Errorf("default codex.model: got %q, want empty", cfg.Codex.Model)
 		}
 	})
+}
+
+func TestPromptTemplates_TaskAccounting(t *testing.T) {
+	for _, want := range []string{"[ ] → [x]", "reconcile tasks.md", "bookkeeping"} {
+		if !strings.Contains(buildPromptTemplate, want) {
+			t.Errorf("buildPromptTemplate missing %q", want)
+		}
+	}
+	if strings.Contains(buildPromptTemplate, "Treat specs as read-only") {
+		t.Error("buildPromptTemplate must not declare all specs read-only (tasks.md is maintained)")
+	}
+	for _, want := range []string{"checkbox reconciliation", "bookkeeping"} {
+		if !strings.Contains(roamPromptTemplate, want) {
+			t.Errorf("roamPromptTemplate missing %q", want)
+		}
+	}
 }
 
 func writeCompleteRalphTOML(t *testing.T, dir string) {

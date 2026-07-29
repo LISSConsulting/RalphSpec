@@ -153,6 +153,11 @@ var configScaffoldSections = []configScaffoldSection{
 	}},
 	{name: "agent", entries: []configScaffoldEntry{
 		{key: "type", line: `type = "claude"`},
+		{key: "stdin_steer", line: `stdin_steer = false  # experimental: steer messages go straight to the running agent's stdin mid-turn`},
+	}},
+	{name: "harness", entries: []configScaffoldEntry{
+		{key: "claude", line: `claude = "claude"  # executable for the claude harness, e.g. "claude-kimi"`},
+		{key: "codex", line: `codex = "codex"    # executable for the codex harness, e.g. "codex-minimax"`},
 	}},
 	{name: "claude", entries: []configScaffoldEntry{
 		{key: "model", line: `model = "sonnet"`},
@@ -363,6 +368,7 @@ Read these sources using parallel subagents before making changes:
 
 Find and complete one high-leverage improvement per iteration. Good roam work includes:
 - Verified spec drift or missing behavior found by comparing specs/ against implementation
+- Unchecked tasks.md boxes in recently completed specs (tasks.md checkboxes are bookkeeping, not spec text — reconcile them)
 - Bugs, flaky tests, failing tests, weak coverage, or untested edge cases
 - Stale README/help text/docs, outdated examples, or misleading comments
 - TODO/FIXME/HACK/XXX items with clear, contained fixes
@@ -372,7 +378,7 @@ Find and complete one high-leverage improvement per iteration. Good roam work in
 ## Constraints
 
 - Search before assuming. Confirm every issue from source, tests, docs, or command output.
-- Do not modify specs/ unless the user explicitly asks.
+- Do not modify specs/ other than tasks.md checkbox reconciliation unless the user explicitly asks.
 - Avoid broad rewrites, aesthetic churn, placeholder code, and unrelated changes.
 - Prefer the smallest complete fix that leaves the repository healthier.
 - Keep @CHRONICLE.md compact. Record unresolved blockers, newly discovered follow-ups, and current decisions; avoid replaying completed history that already exists in git and JSONL logs.
@@ -396,7 +402,8 @@ const buildPromptTemplate = `You are a build agent implementing the active speci
 
 - Active spec context is provided by Ralph when available. Stay inside that spec boundary.
 - In the active specs/NNN-name/ directory, read spec.md, plan.md, and tasks.md.
-- Treat specs as read-only. If a spec is wrong or ambiguous, record the issue instead of editing specs.
+- Treat spec.md and plan.md as read-only. If a spec is wrong or ambiguous, record the issue instead of editing it.
+- tasks.md is bookkeeping you own: whenever you complete a task, check its box ([ ] → [x]) in the same commit as the work.
 - Use @CHRONICLE.md only for current blockers, open findings, and notes that are not already captured in spec artifacts. Do not replay old completed-work history.
 
 ## Rules
@@ -413,8 +420,9 @@ const buildPromptTemplate = `You are a build agent implementing the active speci
 2. Confirm current implementation state with code search and tests before editing.
 3. Make the smallest complete change that satisfies the task.
 4. Run the relevant tests or checks for the changed area.
-5. Update @CHRONICLE.md only with unresolved blockers, newly discovered follow-ups, or a short note that the selected item is complete.
-6. Commit and push when tests pass.
+5. Check off the completed task's box in tasks.md ([ ] → [x]).
+6. Update @CHRONICLE.md only with unresolved blockers, newly discovered follow-ups, or a short note that the selected item is complete.
+7. Commit and push when tests pass.
 
 ## Empty Queue
 
@@ -430,7 +438,7 @@ Ship at most one cohesive improvement per iteration, then update @CHRONICLE.md w
 
 ## Completion
 
-Stop after one task or one focused improvement is fully implemented, verified, recorded if needed, committed, and pushed.
+Stop after one task or one focused improvement is fully implemented, verified, checked off in tasks.md, recorded if needed, committed, and pushed. Before the final iteration of a spec, reconcile tasks.md so every completed task is checked.
 `
 
 const implementationPlanTemplate = `> Project working memory for Ralph agents.

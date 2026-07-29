@@ -650,6 +650,97 @@ func TestTextEventInEventChannel(t *testing.T) {
 	}
 }
 
+func TestCountTasks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tasks.md")
+
+	if _, _, err := countTasks(filepath.Join(dir, "missing.md")); err == nil {
+		t.Error("expected error for missing file")
+	}
+
+	content := `# Tasks
+
+- [ ] T001 first
+- [X] T002 second
+  - [x] T003 nested
+- [ ] T004 fourth
+- not a checkbox
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	checked, total, err := countTasks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked != 2 || total != 4 {
+		t.Errorf("countTasks = %d/%d, want 2/4", checked, total)
+	}
+}
+
+func TestTaskAccountingPrompt(t *testing.T) {
+	events := make(chan LogEntry, 64)
+	agent := &mockAgent{
+		events: []claude.Event{claude.ResultEvent(0.01, 0.1, "success")},
+	}
+	git := &mockGit{branch: "main", lastCommit: "h0"}
+	cfg := defaultTestConfig()
+	cfg.Build.MaxIterations = 1
+
+	lp, _ := setupTestLoop(t, agent, git, cfg)
+	lp.Events = events
+	lp.Spec = "001-feat"
+	lp.SpecDir = "specs/001-feat"
+
+	tasksPath := filepath.Join(lp.Dir, lp.SpecDir, "tasks.md")
+	if err := os.MkdirAll(filepath.Dir(tasksPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tasksPath, []byte("- [x] T001 done\n- [ ] T002 todo\n- [ ] T003 todo\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(agent.lastPrompt, "## Task Accounting") {
+		t.Errorf("prompt missing Task Accounting section:\n%s", agent.lastPrompt)
+	}
+	if !strings.Contains(agent.lastPrompt, "1 of 3 tasks checked off") {
+		t.Errorf("prompt missing live counts:\n%s", agent.lastPrompt)
+	}
+
+	close(events)
+	var found bool
+	for e := range events {
+		if e.Kind == LogInfo && e.Message == "tasks: 1/3 complete" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected LogInfo 'tasks: 1/3 complete' on the Events channel")
+	}
+}
+
+func TestTaskAccountingSkippedWithoutSpec(t *testing.T) {
+	agent := &mockAgent{
+		events: []claude.Event{claude.ResultEvent(0.01, 0.1, "success")},
+	}
+	git := &mockGit{branch: "main", lastCommit: "h0"}
+	cfg := defaultTestConfig()
+	cfg.Build.MaxIterations = 1
+
+	lp, _ := setupTestLoop(t, agent, git, cfg)
+	// No Spec/SpecDir set — prompt must remain the plain build prompt.
+	if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(agent.lastPrompt, "Task Accounting") {
+		t.Errorf("prompt must not contain Task Accounting without an active spec:\n%s", agent.lastPrompt)
+	}
+}
+
 func TestSteerNudge(t *testing.T) {
 	events := make(chan LogEntry, 64)
 	steerCh := make(chan string, 4)

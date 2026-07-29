@@ -103,6 +103,7 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 
 	var totalCost float64
 	var prevSubtype string
+	lastChecked, lastTotal := -1, -1
 	for i := 1; maxIter == 0 || i <= maxIter; i++ {
 		select {
 		case <-ctx.Done():
@@ -116,8 +117,21 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 		}
 
 		iterPrompt := prompt
+		if l.SpecDir != "" && !l.Roam {
+			if checked, total, taskErr := countTasks(l.tasksPath()); taskErr == nil && total > 0 {
+				iterPrompt = appendTaskAccounting(iterPrompt, l.SpecDir, checked, total)
+				if checked != lastChecked || total != lastTotal {
+					l.emit(LogEntry{
+						Kind:    LogInfo,
+						Message: fmt.Sprintf("tasks: %d/%d complete", checked, total),
+						Agent:   l.agentName(),
+					})
+					lastChecked, lastTotal = checked, total
+				}
+			}
+		}
 		if steers := l.drainSteers(); len(steers) > 0 {
-			iterPrompt = appendSteerSection(prompt, steers)
+			iterPrompt = appendSteerSection(iterPrompt, steers)
 		}
 
 		cost, subtype, commitsProduced, dirty, iterErr := l.iteration(ctx, i, maxIter, iterPrompt, branch)
@@ -192,6 +206,47 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 		MaxIter:   maxIter,
 	})
 	return nil
+}
+
+// tasksPath resolves the active spec's tasks.md path relative to the loop dir.
+func (l *Loop) tasksPath() string {
+	if filepath.IsAbs(l.SpecDir) {
+		return filepath.Join(l.SpecDir, "tasks.md")
+	}
+	return filepath.Join(l.Dir, l.SpecDir, "tasks.md")
+}
+
+// countTasks counts markdown checkbox items (- [ ], - [x], - [X]) in a
+// tasks.md file. Returns an error when the file cannot be read.
+func countTasks(path string) (checked, total int, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		t := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(t, "- [ ]"):
+			total++
+		case strings.HasPrefix(t, "- [x]"), strings.HasPrefix(t, "- [X]"):
+			checked++
+			total++
+		}
+	}
+	return checked, total, nil
+}
+
+// appendTaskAccounting appends the live checkbox state and check-off
+// instruction to an iteration prompt.
+func appendTaskAccounting(prompt, specDir string, checked, total int) string {
+	return fmt.Sprintf(`%s
+
+## Task Accounting
+
+%s/tasks.md: %d of %d tasks checked off.
+
+tasks.md is the loop's bookkeeping, not a read-only artifact: whenever you complete a task, check its box ([ ] → [x]) in the same commit. Before declaring this spec complete, reconcile tasks.md so every completed task is checked.`,
+		strings.TrimRight(prompt, "\n"), specDir, checked, total)
 }
 
 // drainSteers consumes all pending operator steering messages without

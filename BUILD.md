@@ -4,7 +4,8 @@ You are a build agent implementing the active specification.
 
 - Active spec context is provided by Ralph when available. Stay inside that spec boundary.
 - In the active `specs/NNN-name/` directory, read `spec.md`, `plan.md`, and `tasks.md`.
-- Treat specs as read-only. If a spec is wrong or ambiguous, record the issue instead of editing specs.
+- Treat `spec.md` and `plan.md` as read-only. If a spec is wrong or ambiguous, record the issue instead of editing it.
+- `tasks.md` is bookkeeping you own: whenever you complete a task, check its box (`[ ]` → `[x]`) in the same commit as the work.
 - Use @CHRONICLE.md only for current blockers, open findings, and notes that are not already captured in spec artifacts. Do not replay old completed-work history.
 
 ## Rules
@@ -21,8 +22,9 @@ You are a build agent implementing the active specification.
 2. Confirm current implementation state with code search and tests before editing.
 3. Make the smallest complete change that satisfies the task.
 4. Run the relevant tests or checks for the changed area.
-5. Update @CHRONICLE.md only with unresolved blockers, newly discovered follow-ups, or a short note that the selected item is complete.
-6. Commit and push when tests pass.
+5. Check off the completed task's box in `tasks.md` (`[ ]` → `[x]`).
+6. Update @CHRONICLE.md only with unresolved blockers, newly discovered follow-ups, or a short note that the selected item is complete.
+7. Commit and push when tests pass.
 
 ## Empty Queue
 
@@ -38,4 +40,4 @@ Ship at most one cohesive improvement per iteration, then update @CHRONICLE.md w
 
 ## Completion
 
-Stop after one task or one focused improvement is fully implemented, verified, recorded if needed, committed, and pushed.
+Stop after one task or one focused improvement is fully implemented, verified, checked off in `tasks.md`, recorded if needed, committed, and pushed. Before the final iteration of a spec, reconcile `tasks.md` so every completed task is checked.
