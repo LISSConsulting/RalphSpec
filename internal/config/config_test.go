@@ -509,13 +509,21 @@ func TestValidate(t *testing.T) {
 				c.Regent.RollbackOnTestFailure = true
 				c.Regent.TestCommand = ""
 			},
-			wantErr: "regent.test_command must be set",
+			wantErr: "regent.test_command or regent.auto_discover_tests must be set",
 		},
 		{
 			name: "rollback_on_test_failure with test_command",
 			modify: func(c *Config) {
 				c.Regent.RollbackOnTestFailure = true
 				c.Regent.TestCommand = "go test ./..."
+			},
+		},
+		{
+			name: "rollback_on_test_failure with automatic discovery",
+			modify: func(c *Config) {
+				c.Regent.RollbackOnTestFailure = true
+				c.Regent.TestCommand = ""
+				c.Regent.AutoDiscoverTests = true
 			},
 		},
 		{

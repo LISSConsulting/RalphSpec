@@ -1,6 +1,10 @@
 package loop
 
-import "time"
+import (
+	"time"
+
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
+)
 
 // LogKind identifies the type of a loop log event.
 type LogKind int
@@ -49,6 +53,11 @@ type LogEntry struct {
 	Branch string
 	Commit string
 
-	// Mode (plan/build)
-	Mode string
+	// Mode identifies plan/build execution; Ludicrous marks evidence-bounded
+	// unbounded build mode for live and historical status surfaces.
+	Mode      string
+	Ludicrous bool
+
+	// QuotaDecision records the admission decision associated with this event.
+	QuotaDecision *quota.Decision
 }

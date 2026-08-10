@@ -7,17 +7,33 @@ name = "RalphSpec"
 [agent]
 type = "claude"
 
+[harness]
+claude = "claude"
+codex = "codex"
+
 [claude]
 model = "sonnet"
 max_turns = 0  # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
+quota_snapshot_file = ""
+quota_snapshot_max_age_seconds = 300
 
 [codex]
 model = ""
 
+
+[quota]
+enabled = false
+reserve_percent = 10
+exhausted_policy = "fail_closed"
+unknown_policy = "allow"
+max_wait_seconds = 3600
+max_parallel = 1
+
 [build]
 prompt_file = "BUILD.md"
 max_iterations = 20  # 0 = unlimited
+ludicrous = false
 
 [roam]
 enabled = false  # roam freely across the codebase (--roam flag overrides)
@@ -33,6 +49,7 @@ auto_push = true
 enabled = true
 rollback_on_test_failure = false  # set true once test command configured
 test_command = "go test ./..."  # command run by Regent after each iteration
+auto_discover_tests = false
 max_retries = 3
 retry_backoff_seconds = 30
 hang_timeout_seconds = 300  # kill Ralph if no output for 5 min

@@ -2,13 +2,17 @@ package regent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/LISSConsulting/RalphSpec/internal/claude"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
 )
 
 // RunFunc is the function the Regent supervises. Typically wraps loop.Loop.Run.
@@ -17,10 +21,12 @@ type RunFunc func(ctx context.Context) error
 // Regent supervises the Ralph loop: crash detection, hang detection,
 // test-gated rollback, and state persistence.
 type Regent struct {
-	cfg    config.RegentConfig
-	dir    string
-	git    GitOps
-	events chan<- loop.LogEntry
+	cfg       config.RegentConfig
+	dir       string
+	git       GitOps
+	events    chan<- loop.LogEntry
+	testPlan  *testplan.Plan
+	ludicrous bool
 
 	// mu protects lastOutputAt and state
 	mu           sync.Mutex
@@ -39,6 +45,17 @@ func New(cfg config.RegentConfig, dir string, git GitOps, events chan<- loop.Log
 	}
 }
 
+// SetTestPlan installs the immutable run-start plan used for post-iteration
+// verification. The plan replaces the legacy single-command test gate.
+func (r *Regent) SetTestPlan(plan *testplan.Plan) {
+	r.testPlan = cloneTestPlan(plan)
+}
+
+// SetLudicrous records the effective completion mode in persisted run state.
+func (r *Regent) SetLudicrous(enabled bool) {
+	r.ludicrous = enabled
+}
+
 // Supervise runs the given function under Regent supervision. It handles crash
 // detection with retry/backoff and hang detection via output timeout. Test-gated
 // rollback is handled per-iteration via Loop.PostIteration (wired to
@@ -50,6 +67,9 @@ func (r *Regent) Supervise(ctx context.Context, run RunFunc) error {
 		RalphPID:     os.Getpid(),
 		LastOutputAt: now,
 		StartedAt:    now,
+		Status:       StatusRunning,
+		Ludicrous:    r.ludicrous,
+		TestPlan:     cloneTestPlan(r.testPlan),
 	}
 	r.mu.Unlock()
 	r.saveState()
@@ -69,11 +89,17 @@ func (r *Regent) Supervise(ctx context.Context, run RunFunc) error {
 
 		err := r.runWithHangDetection(ctx, run)
 
+		if errors.Is(err, loop.ErrOperatorStopped) {
+			r.finishGraceful()
+			r.emit("Operator stop honoured")
+			return loop.ErrOperatorStopped
+		}
 		if err == nil {
 			r.mu.Lock()
 			r.state.ConsecutiveErrs = 0
 			r.state.FinishedAt = time.Now()
 			r.state.Passed = true
+			r.state.Status = StatusPassed
 			r.mu.Unlock()
 
 			r.saveState()
@@ -84,6 +110,23 @@ func (r *Regent) Supervise(ctx context.Context, run RunFunc) error {
 			r.emit("Context cancelled — stopping")
 			r.finishGraceful()
 			return ctx.Err()
+		}
+
+		if outcome, ok := claude.AsOutcome(err); ok {
+			switch outcome.Kind {
+			case claude.OutcomeQuotaExhausted:
+				r.finishBlocked(StatusPausedQuota, outcome.Message, outcome.RetryAt)
+				r.emit("Quota exhausted — run paused without consuming a retry")
+				return fmt.Errorf("regent: quota exhausted: %w", err)
+			case claude.OutcomeAuthenticationRequired:
+				r.finishBlocked(StatusBlocked, outcome.Message, time.Time{})
+				r.emit("Authentication required — operator action needed")
+				return fmt.Errorf("regent: authentication required: %w", err)
+			case claude.OutcomeCancelled:
+				r.finishGraceful()
+				r.emit("Agent cancelled — stopping")
+				return fmt.Errorf("regent: agent cancelled: %w", err)
+			}
 		}
 
 		consecutiveErrors++
@@ -98,6 +141,7 @@ func (r *Regent) Supervise(ctx context.Context, run RunFunc) error {
 			r.mu.Lock()
 			r.state.FinishedAt = time.Now()
 			r.state.Passed = false
+			r.state.Status = StatusFailed
 			r.mu.Unlock()
 			r.saveState()
 			r.emit(fmt.Sprintf("Max retries (%d) exceeded — giving up", r.cfg.MaxRetries))
@@ -195,6 +239,14 @@ func (r *Regent) UpdateState(entry loop.LogEntry) {
 		r.state.Mode = entry.Mode
 		changed = true
 	}
+	if entry.Ludicrous {
+		r.state.Ludicrous = true
+		changed = true
+	}
+	if entry.QuotaDecision != nil {
+		r.state.Quota = cloneQuotaDecision(entry.QuotaDecision)
+		changed = true
+	}
 	r.mu.Unlock()
 
 	if changed {
@@ -202,30 +254,74 @@ func (r *Regent) UpdateState(entry loop.LogEntry) {
 	}
 }
 
-// RunPostIterationTests runs the configured test command and reverts the last
-// commit if tests fail. Designed to be called via Loop.PostIteration after each
-// iteration for per-iteration test-gated rollback per the Regent spec. Errors
-// are emitted as events rather than returned, so the loop continues to the
-// next iteration.
-func (r *Regent) RunPostIterationTests() {
+func cloneTestPlan(plan *testplan.Plan) *testplan.Plan {
+	if plan == nil {
+		return nil
+	}
+	cloned := *plan
+	cloned.Steps = append([]testplan.Step(nil), plan.Steps...)
+	cloned.Diagnostics = append([]string(nil), plan.Diagnostics...)
+	return &cloned
+}
+
+func cloneQuotaDecision(decision *quota.Decision) *quota.Decision {
+	if decision == nil {
+		return nil
+	}
+	cloned := *decision
+	if decision.Snapshot != nil {
+		snapshot := *decision.Snapshot
+		snapshot.Windows = append([]quota.Window(nil), decision.Snapshot.Windows...)
+		cloned.Snapshot = &snapshot
+	}
+	return &cloned
+}
+
+// RunPostIterationTests executes the run-start test plan and optionally reverts
+// the last commit when verification fails. The return value is completion
+func (r *Regent) RunPostIterationTests(ctx context.Context) bool {
+	if r.testPlan != nil {
+		for _, step := range r.testPlan.Steps {
+			r.emit(fmt.Sprintf("Running tests: %s (%s)", step.Command, step.Dir))
+		}
+		result := testplan.Run(ctx, *r.testPlan)
+		if result.Passed {
+			commit, _ := r.git.LastCommit()
+			r.emit(fmt.Sprintf("Tests passed — commit %s kept", commit))
+			return true
+		}
+		for _, step := range result.Steps {
+			if !step.Passed {
+				r.emit(fmt.Sprintf("Tests failed: %s\n%s", step.Step.Command, step.Output))
+				break
+			}
+		}
+		if r.cfg.RollbackOnTestFailure {
+			r.revertFailedIteration()
+		}
+		return false
+	}
 	if !r.cfg.RollbackOnTestFailure || r.cfg.TestCommand == "" {
-		return
+		return true
 	}
 
 	r.emit("Running tests: " + r.cfg.TestCommand)
 	result, err := RunTests(r.dir, r.cfg.TestCommand)
 	if err != nil {
 		r.emit(fmt.Sprintf("Failed to start tests: %v", err))
-		return
+		return false
 	}
-
 	if result.Passed {
 		commit, _ := r.git.LastCommit()
-		r.emit(fmt.Sprintf("Tests passed ✅ — commit %s kept", commit))
-		return
+		r.emit(fmt.Sprintf("Tests passed — commit %s kept", commit))
+		return true
 	}
+	r.revertFailedIteration()
+	return false
+}
 
-	r.emit("Tests failed ❌ — reverting last commit")
+func (r *Regent) revertFailedIteration() {
+	r.emit("Tests failed — reverting last commit")
 	sha, revertErr := RevertLastCommit(r.git)
 	if revertErr != nil {
 		r.emit(fmt.Sprintf("Failed to revert: %v", revertErr))
@@ -234,12 +330,26 @@ func (r *Regent) RunPostIterationTests() {
 	r.emit(fmt.Sprintf("Reverted commit %s — pushed revert", sha))
 }
 
-// finishGraceful sets FinishedAt and Passed=true for context-cancelled exits.
-// Context cancellation is a user-initiated stop, not a failure.
+// finishGraceful records an operator- or context-requested stop. A stopped run
+// is not a successful completion.
 func (r *Regent) finishGraceful() {
 	r.mu.Lock()
 	r.state.FinishedAt = time.Now()
-	r.state.Passed = true
+	r.state.Passed = false
+	r.state.ConsecutiveErrs = 0
+	r.state.Status = StatusStopped
+	r.mu.Unlock()
+	r.saveState()
+}
+
+func (r *Regent) finishBlocked(status Status, reason string, resumeAt time.Time) {
+	r.mu.Lock()
+	r.state.FinishedAt = time.Now()
+	r.state.Passed = false
+	r.state.ConsecutiveErrs = 0
+	r.state.Status = status
+	r.state.BlockReason = reason
+	r.state.ResumeAt = resumeAt
 	r.mu.Unlock()
 	r.saveState()
 }

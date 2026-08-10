@@ -15,7 +15,9 @@ import (
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/git"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
 	"github.com/LISSConsulting/RalphSpec/internal/regent"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
 )
 
 // TestFormatLogLine is superseded by TestLineFormatter_PlainMode in format_test.go.
@@ -154,7 +156,7 @@ func TestFormatStatus(t *testing.T) {
 			excludes: []string{"Ralph Status"},
 		},
 		{
-			name: "running — shows elapsed duration and last output",
+			name: "running — shows elapsed duration, metadata, and last output",
 			state: regent.State{
 				RalphPID:     123,
 				Agent:        "codex",
@@ -165,6 +167,13 @@ func TestFormatStatus(t *testing.T) {
 				TotalCostUSD: 0.42,
 				StartedAt:    started,
 				LastOutputAt: lastOutput,
+				Ludicrous:    true,
+				TestPlan: &testplan.Plan{
+					Explicit:    true,
+					Steps:       []testplan.Step{{Command: "go test ./...", Confidence: testplan.ConfidenceHigh}},
+					Diagnostics: []string{"workspace metadata selected"},
+				},
+				Quota: &quota.Decision{Action: quota.ActionAllow, Reason: "quota available"},
 			},
 			contains: []string{
 				"Ralph Status",
@@ -173,7 +182,13 @@ func TestFormatStatus(t *testing.T) {
 				"Agent:",
 				"codex",
 				"Mode:",
-				"build",
+				"build (ludicrous)",
+				"Test plan:",
+				"explicit (1): go test ./...",
+				"Quota:",
+				"allow — quota available",
+				"Test diagnostic:",
+				"workspace metadata selected",
 				"Last commit:",
 				"abc1234",
 				"Iteration:",
@@ -294,7 +309,7 @@ func TestFormatStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pidRunning := func(pid int) bool {
-				return (tt.name == "running — shows elapsed duration and last output" || tt.name == "running without last output — omits last output line") && pid == 123
+				return (tt.name == "running — shows elapsed duration, metadata, and last output" || tt.name == "running without last output — omits last output line") && pid == 123
 			}
 			got := formatStatusWithPIDCheck(tt.state, now, pidRunning)
 			for _, want := range tt.contains {
@@ -333,24 +348,33 @@ func TestResolveAgent(t *testing.T) {
 	if _, err := resolveAgent(&config.Config{}, "nope"); err == nil {
 		t.Fatal("expected unknown-agent error")
 	}
+	for _, unsupported := range []string{"omp", "opencode"} {
+		if _, err := resolveAgent(&config.Config{Agent: config.AgentConfig{Type: unsupported}}, ""); err == nil {
+			t.Errorf("expected %q to be rejected", unsupported)
+		}
+	}
 }
 
 func TestHarnessExecutable(t *testing.T) {
 	cfg := config.Defaults()
-	if got := harnessExecutable(&cfg, config.AgentClaude); got != "claude" {
-		t.Errorf("default claude harness = %q", got)
-	}
-	if got := harnessExecutable(&cfg, config.AgentCodex); got != "codex" {
-		t.Errorf("default codex harness = %q", got)
+	for agentType, want := range map[string]string{
+		config.AgentClaude: "claude",
+		config.AgentCodex:  "codex",
+	} {
+		if got := harnessExecutable(&cfg, agentType); got != want {
+			t.Errorf("default %s harness = %q, want %q", agentType, got, want)
+		}
 	}
 
 	cfg.Harness.Claude = "claude-kimi"
 	cfg.Harness.Codex = "codex-minimax"
-	if got := harnessExecutable(&cfg, config.AgentClaude); got != "claude-kimi" {
-		t.Errorf("override claude harness = %q", got)
-	}
-	if got := harnessExecutable(&cfg, config.AgentCodex); got != "codex-minimax" {
-		t.Errorf("override codex harness = %q", got)
+	for agentType, want := range map[string]string{
+		config.AgentClaude: "claude-kimi",
+		config.AgentCodex:  "codex-minimax",
+	} {
+		if got := harnessExecutable(&cfg, agentType); got != want {
+			t.Errorf("override %s harness = %q, want %q", agentType, got, want)
+		}
 	}
 }
 

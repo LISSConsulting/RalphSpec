@@ -15,9 +15,11 @@ import (
 	"github.com/LISSConsulting/RalphSpec/internal/git"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
 	"github.com/LISSConsulting/RalphSpec/internal/notify"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
 	"github.com/LISSConsulting/RalphSpec/internal/regent"
 	"github.com/LISSConsulting/RalphSpec/internal/spec"
 	"github.com/LISSConsulting/RalphSpec/internal/store"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
 	"github.com/LISSConsulting/RalphSpec/internal/worktree"
 )
 
@@ -64,6 +66,11 @@ func setupLoop(noTUI, roam, noColor bool, agentOverride string) (*loopSetup, err
 		ctx, cancel = signalContext()
 	}
 
+	discoveredPlan, err := discoverRunTestPlan(cfg, dir)
+	if err != nil {
+		return nil, err
+	}
+
 	gitRunner := git.NewRunner(dir)
 	effectiveRoam := roam || cfg.Roam.Enabled
 	agentType, err := resolveAgent(cfg, agentOverride)
@@ -81,6 +88,14 @@ func setupLoop(noTUI, roam, noColor bool, agentOverride string) (*loopSetup, err
 		Git:       gitRunner,
 		Config:    cfg,
 		Dir:       dir,
+		TestPlan:  discoveredPlan,
+	}
+	if cfg.Quota.Enabled {
+		var provider quota.Provider
+		if supported, ok := agentImpl.(quota.Provider); ok {
+			provider = supported
+		}
+		lp.QuotaGate = quota.NewGate(cfg.Quota, provider)
 	}
 	if stopCh != nil {
 		lp.StopAfter = stopCh
@@ -131,13 +146,20 @@ func setupLoop(noTUI, roam, noColor bool, agentOverride string) (*loopSetup, err
 	}, nil
 }
 
-// executeLoop loads config, builds the loop, and runs it in the given mode.
+// executeLoop preserves the programmatic default without command-line overrides.
 func executeLoop(mode loop.Mode, maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string) error {
+	return executeLoopWithOptions(mode, maxOverride, noTUI, roam, focus, noColor, useWorktree, agentOverride, false)
+}
+
+func executeLoopWithOptions(mode loop.Mode, maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string, ludicrous bool) error {
 	setup, err := setupLoop(noTUI, roam, noColor, agentOverride)
 	if err != nil {
 		return err
 	}
 	defer setup.cancel()
+	if ludicrous {
+		setup.cfg.Build.Ludicrous = true
+	}
 	defer setup.cleanup()
 
 	if err := validateAgentFlow(setup.agentType, useWorktree, false); err != nil {
@@ -352,8 +374,42 @@ func formatStatusWithResult(state regent.State, now time.Time, result statusResu
 	if state.Agent != "" {
 		fmt.Fprintf(&b, "  %-20s %s\n", "Agent:", state.Agent)
 	}
-	if state.Mode != "" {
-		fmt.Fprintf(&b, "  %-20s %s\n", "Mode:", state.Mode)
+	mode := state.Mode
+	if state.Ludicrous {
+		if mode == "" {
+			mode = "ludicrous"
+		} else {
+			mode += " (ludicrous)"
+		}
+	}
+	if mode != "" {
+		fmt.Fprintf(&b, "  %-20s %s\n", "Mode:", mode)
+	}
+	if state.Status != "" {
+		fmt.Fprintf(&b, "  %-20s %s\n", "State:", state.Status)
+	}
+	if state.BlockReason != "" {
+		fmt.Fprintf(&b, "  %-20s %s\n", "Blocked:", state.BlockReason)
+	}
+	if !state.ResumeAt.IsZero() {
+		fmt.Fprintf(&b, "  %-20s %s\n", "Resume at:", state.ResumeAt.Format(time.RFC3339))
+	}
+	if state.TestPlan != nil {
+		source := "discovered"
+		if state.TestPlan.Explicit {
+			source = "explicit"
+		}
+		commands := make([]string, 0, len(state.TestPlan.Steps))
+		for _, step := range state.TestPlan.Steps {
+			commands = append(commands, step.Command)
+		}
+		fmt.Fprintf(&b, "  %-20s %s (%d): %s\n", "Test plan:", source, len(commands), strings.Join(commands, "; "))
+		for _, diagnostic := range state.TestPlan.Diagnostics {
+			fmt.Fprintf(&b, "  %-20s %s\n", "Test diagnostic:", diagnostic)
+		}
+	}
+	if state.Quota != nil {
+		fmt.Fprintf(&b, "  %-20s %s — %s\n", "Quota:", state.Quota.Action, state.Quota.Reason)
 	}
 	if state.LastCommit != "" {
 		fmt.Fprintf(&b, "  %-20s %s\n", "Last commit:", state.LastCommit)
@@ -376,6 +432,7 @@ func formatStatusWithResult(state regent.State, now time.Time, result statusResu
 	if result == statusRunning && !state.LastOutputAt.IsZero() {
 		ago := now.Sub(state.LastOutputAt).Round(time.Second)
 		fmt.Fprintf(&b, "  %-20s %s ago\n", "Last output:", ago)
+
 	}
 
 	switch result {
@@ -383,6 +440,12 @@ func formatStatusWithResult(state regent.State, now time.Time, result statusResu
 		fmt.Fprintf(&b, "  %-20s %s\n", "Result:", "running")
 	case statusPass:
 		fmt.Fprintf(&b, "  %-20s %s\n", "Result:", "pass")
+	case statusPaused:
+		fmt.Fprintf(&b, "  %-20s %s\n", "Result:", "paused for quota")
+	case statusBlocked:
+		fmt.Fprintf(&b, "  %-20s %s\n", "Result:", "blocked for operator action")
+	case statusStopped:
+		fmt.Fprintf(&b, "  %-20s %s\n", "Result:", "stopped")
 	case statusFailWithErrors:
 		fmt.Fprintf(&b, "  %-20s fail (%d consecutive errors)\n", "Result:", state.ConsecutiveErrs)
 	case statusFail:
@@ -390,6 +453,19 @@ func formatStatusWithResult(state regent.State, now time.Time, result statusResu
 	}
 
 	return b.String()
+}
+func discoverRunTestPlan(cfg *config.Config, dir string) (*testplan.Plan, error) {
+	if !cfg.Regent.AutoDiscoverTests && strings.TrimSpace(cfg.Regent.TestCommand) == "" {
+		return nil, nil
+	}
+	plan, err := testplan.Discover(dir, cfg.Regent.TestCommand)
+	if err != nil {
+		return nil, fmt.Errorf("test plan discovery: %w", err)
+	}
+	if len(plan.Steps) == 0 {
+		return nil, fmt.Errorf("test plan discovery was inconclusive; configure regent.test_command or add declared test metadata")
+	}
+	return &plan, nil
 }
 
 func resolveAgent(cfg *config.Config, override string) (string, error) {
@@ -400,36 +476,48 @@ func resolveAgent(cfg *config.Config, override string) (string, error) {
 	if agentType == "" {
 		agentType = config.AgentClaude
 	}
-	if agentType != config.AgentClaude && agentType != config.AgentCodex {
+	switch agentType {
+	case config.AgentClaude, config.AgentCodex:
+		return agentType, nil
+	default:
 		return "", fmt.Errorf("agent.type must be one of %s,%s", config.AgentClaude, config.AgentCodex)
 	}
-	return agentType, nil
 }
 
 // harnessExecutable resolves the executable for an agent type, honoring the
 // [harness] overrides (e.g. claude-kimi, codex-minimax shims).
 func harnessExecutable(cfg *config.Config, agentType string) string {
-	if agentType == config.AgentCodex {
+	switch agentType {
+	case config.AgentCodex:
 		if cfg.Harness.Codex != "" {
 			return cfg.Harness.Codex
 		}
 		return "codex"
+	default:
+		if cfg.Harness.Claude != "" {
+			return cfg.Harness.Claude
+		}
+		return "claude"
 	}
-	if cfg.Harness.Claude != "" {
-		return cfg.Harness.Claude
-	}
-	return "claude"
 }
 
 func buildAgent(cfg *config.Config, agentType string) (claude.Agent, error) {
 	exe := harnessExecutable(cfg, agentType)
-	if agentType == config.AgentCodex {
+	switch agentType {
+	case config.AgentCodex:
 		if err := codex.CheckAvailable(exe); err != nil {
 			return nil, fmt.Errorf("codex agent unavailable: %w; install or log into Codex CLI, or use --agent claude", err)
 		}
 		return &codex.Agent{Executable: exe}, nil
+	case config.AgentClaude:
+		return &loop.ClaudeAgent{
+			Executable:          exe,
+			QuotaSnapshotFile:   cfg.Claude.QuotaSnapshotFile,
+			QuotaSnapshotMaxAge: time.Duration(cfg.Claude.QuotaSnapshotMaxAgeSeconds) * time.Second,
+		}, nil
+	default:
+		return nil, fmt.Errorf("agent.type must be one of %s,%s", config.AgentClaude, config.AgentCodex)
 	}
-	return &loop.ClaudeAgent{Executable: exe}, nil
 }
 
 func validateAgentFlow(agentType string, useWorktree bool, dashboard bool) error {
@@ -446,6 +534,9 @@ const (
 	statusNoState statusResult = iota
 	statusRunning
 	statusPass
+	statusPaused
+	statusBlocked
+	statusStopped
 	statusFailWithErrors
 	statusFail
 )
@@ -459,6 +550,25 @@ func classifyResult(state regent.State) statusResult {
 func classifyResultWithPIDCheck(state regent.State, pidRunning func(int) bool) statusResult {
 	if state.RalphPID == 0 && state.Iteration == 0 {
 		return statusNoState
+	}
+	switch state.Status {
+	case regent.StatusRunning:
+		if pidRunning(state.RalphPID) {
+			return statusRunning
+		}
+	case regent.StatusPassed:
+		return statusPass
+	case regent.StatusPausedQuota:
+		return statusPaused
+	case regent.StatusBlocked:
+		return statusBlocked
+	case regent.StatusStopped:
+		return statusStopped
+	case regent.StatusFailed:
+		if state.ConsecutiveErrs > 0 {
+			return statusFailWithErrors
+		}
+		return statusFail
 	}
 	running := !state.StartedAt.IsZero() && state.FinishedAt.IsZero()
 	switch {

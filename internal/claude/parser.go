@@ -77,16 +77,21 @@ func parseLine(line []byte) []Event {
 	case "assistant":
 		return parseAssistantMessage(msg)
 	case "result":
-		var events []Event
 		if msg.IsError {
 			errText := msg.Result
 			if errText == "" {
+				errText = msg.Subtype
+			}
+			if errText == "" {
 				errText = "claude run failed"
 			}
-			events = append(events, ErrorEvent(errText))
+			ev := ErrorEvent(errText)
+			ev.CostUSD = msg.CostUSD
+			ev.Duration = msg.Duration / 1000
+			ev.Subtype = msg.Subtype
+			return []Event{ev}
 		}
-		events = append(events, ResultEvent(msg.CostUSD, msg.Duration/1000, msg.Subtype))
-		return events
+		return []Event{ResultEvent(msg.CostUSD, msg.Duration/1000, msg.Subtype)}
 	case "system":
 		if msg.Subtype == "error" {
 			return []Event{ErrorEvent(msg.Error)}

@@ -2,6 +2,7 @@ package loop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
 )
 
 // Mode selects which loop configuration to use.
@@ -19,6 +22,10 @@ type Mode string
 const (
 	ModeBuild Mode = "build"
 )
+
+// ErrOperatorStopped reports a requested graceful stop without treating it as
+// successful goal completion.
+var ErrOperatorStopped = errors.New("operator stop requested")
 
 // GitOps defines the git operations the loop needs.
 // *git.Runner satisfies this interface.
@@ -36,41 +43,57 @@ type GitOps interface {
 
 // Loop orchestrates the prompt -> claude -> parse -> git iteration cycle.
 type Loop struct {
-	Agent            claude.Agent
-	AgentType        string
-	Git              GitOps
-	Config           *config.Config
-	Log              io.Writer       // output destination; defaults to os.Stdout
-	Events           chan<- LogEntry // optional: structured event sink for TUI
-	Dir              string          // working directory for prompt file resolution
-	PostIteration    func()          // optional: called after each iteration (e.g., test-gated rollback)
-	StopAfter        <-chan struct{} // optional: closed to request graceful stop after current iteration
-	Steer            <-chan string   // optional: operator steering messages; drained before each iteration
-	NotificationHook func(LogEntry)  // optional: called on every emitted event for external notifications
-	Roam             bool            // roam freely across the codebase (--roam flag)
-	Spec             string          // active spec name for prompt augmentation (empty = no augmentation)
-	SpecDir          string          // active spec directory for prompt augmentation
-	Focus            string          // constrain roam to a specific topic (empty = no constraint)
-	now              func() time.Time
+	Agent                claude.Agent
+	AgentType            string
+	Git                  GitOps
+	Config               *config.Config
+	QuotaGate            *quota.Gate
+	InitialQuotaRelease  func()
+	InitialQuotaDecision *quota.Decision
+	TestPlan             *testplan.Plan
+	Log                  io.Writer                  // output destination; defaults to os.Stdout
+	Events               chan<- LogEntry            // optional: structured event sink for TUI
+	Dir                  string                     // working directory for prompt file resolution
+	PostIteration        func(context.Context) bool // optional: verifies the iteration; false blocks completion
+	StopAfter            <-chan struct{}            // optional: closed to request graceful stop after current iteration
+	Steer                <-chan string              // optional: operator steering messages; drained before each iteration
+	NotificationHook     func(LogEntry)             // optional: called on every emitted event for external notifications
+	Roam                 bool                       // roam freely across the codebase (--roam flag)
+	Spec                 string                     // active spec name for prompt augmentation (empty = no augmentation)
+	SpecDir              string                     // active spec directory for prompt augmentation
+	Focus                string                     // constrain roam to a specific topic (empty = no constraint)
+	now                  func() time.Time
 }
 
 // Run executes the loop in the given mode. It runs iterations until the
 // configured max is reached, the context is cancelled, or an error occurs.
 // If maxOverride > 0, it overrides the config's max_iterations.
 func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
+	initialQuotaRelease := l.InitialQuotaRelease
+	initialQuotaDecision := cloneQuotaDecision(l.InitialQuotaDecision)
+	initialQuotaHeld := initialQuotaRelease != nil
+	l.InitialQuotaRelease = nil
+	l.InitialQuotaDecision = nil
+	if initialQuotaRelease != nil {
+		defer initialQuotaRelease()
+	}
 	// If stop was already requested (e.g., Ctrl+C during a prior phase), exit
 	// immediately without starting a new run.
 	if l.StopAfter != nil {
 		select {
 		case <-l.StopAfter:
-			return nil
+			return ErrOperatorStopped
 		default:
 		}
 	}
 
 	promptFile, maxIter := l.modeConfig(mode)
+	ludicrous := mode == ModeBuild && l.Config != nil && l.Config.Build.Ludicrous
 	if maxOverride > 0 {
 		maxIter = maxOverride
+	}
+	if ludicrous && maxOverride == 0 {
+		maxIter = 0
 	}
 
 	promptPath := filepath.Join(l.Dir, promptFile)
@@ -81,6 +104,9 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 
 	// Augment prompt with spec context guardrails when applicable.
 	prompt := augmentPrompt(string(promptBytes), l.Spec, l.SpecDir, l.Roam, l.Focus)
+	if ludicrous {
+		prompt += "\n\n## Goal-Persistence Contract\nPersist toward the requested objective until completion is supported by concrete inspection and required test evidence. Do not report success merely because an iteration made no changes. Never bypass safety constraints, quota admission, permissions, or an operator stop."
+	}
 
 	branch, err := l.Git.CurrentBranch()
 	if err != nil {
@@ -91,19 +117,39 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 	// rather than showing "—" until the first push.
 	commit, _ := l.Git.LastCommit()
 
+	runDescription := string(mode)
+	if ludicrous {
+		runDescription += " (ludicrous)"
+	}
 	l.emit(LogEntry{
-		Kind:    LogInfo,
-		Message: fmt.Sprintf("Starting %s loop with %s on branch %s (max: %s)", mode, l.agentName(), branch, iterLabel(maxIter)),
-		Agent:   l.agentName(),
-		Branch:  branch,
-		Commit:  commit,
-		MaxIter: maxIter,
-		Mode:    string(mode),
+		Kind:      LogInfo,
+		Message:   fmt.Sprintf("Starting %s loop with %s on branch %s (max: %s)", runDescription, l.agentName(), branch, iterLabel(maxIter)),
+		Agent:     l.agentName(),
+		Branch:    branch,
+		Commit:    commit,
+		MaxIter:   maxIter,
+		Mode:      string(mode),
+		Ludicrous: ludicrous,
 	})
+	if l.TestPlan != nil {
+		commands := make([]string, 0, len(l.TestPlan.Steps))
+		for _, step := range l.TestPlan.Steps {
+			commands = append(commands, step.Command)
+		}
+		l.emit(LogEntry{
+			Kind:      LogInfo,
+			Message:   fmt.Sprintf("Test plan selected (%d): %s", len(commands), strings.Join(commands, "; ")),
+			Agent:     l.agentName(),
+			Branch:    branch,
+			Mode:      string(mode),
+			Ludicrous: ludicrous,
+		})
+	}
 
 	var totalCost float64
 	var prevSubtype string
 	lastChecked, lastTotal := -1, -1
+	initialQuotaLogged := false
 	for i := 1; maxIter == 0 || i <= maxIter; i++ {
 		select {
 		case <-ctx.Done():
@@ -117,32 +163,97 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 		}
 
 		iterPrompt := prompt
+		tasksComplete := true
 		if l.SpecDir != "" && !l.Roam {
-			if checked, total, taskErr := countTasks(l.tasksPath()); taskErr == nil && total > 0 {
-				iterPrompt = appendTaskAccounting(iterPrompt, l.SpecDir, checked, total)
-				if checked != lastChecked || total != lastTotal {
-					l.emit(LogEntry{
-						Kind:    LogInfo,
-						Message: fmt.Sprintf("tasks: %d/%d complete", checked, total),
-						Agent:   l.agentName(),
-					})
-					lastChecked, lastTotal = checked, total
+			checked, total, taskErr := countTasks(l.tasksPath())
+			if taskErr != nil {
+				if ludicrous {
+					tasksComplete = false
+					l.emit(LogEntry{Kind: LogError, Agent: l.agentName(), Message: fmt.Sprintf("Task completion evidence unavailable: %v", taskErr)})
+				}
+			} else {
+				if total > 0 {
+					iterPrompt = appendTaskAccounting(iterPrompt, l.SpecDir, checked, total)
+					if checked != lastChecked || total != lastTotal {
+						l.emit(LogEntry{
+							Kind:    LogInfo,
+							Message: fmt.Sprintf("tasks: %d/%d complete", checked, total),
+							Agent:   l.agentName(),
+						})
+						lastChecked, lastTotal = checked, total
+					}
+				}
+				if ludicrous {
+					tasksComplete = checked == total
 				}
 			}
 		}
 		if steers := l.drainSteers(); len(steers) > 0 {
 			iterPrompt = appendSteerSection(iterPrompt, steers)
 		}
+		releaseAgentSlot := func() {}
+		if initialQuotaHeld {
+			if !initialQuotaLogged && initialQuotaDecision != nil {
+				decision := cloneQuotaDecision(initialQuotaDecision)
+				l.emit(LogEntry{
+					Kind:          LogInfo,
+					Agent:         l.agentName(),
+					Message:       fmt.Sprintf("Quota %s: %s", decision.Action, decision.Reason),
+					QuotaDecision: decision,
+				})
+				initialQuotaLogged = true
+			}
+		} else if l.QuotaGate != nil {
+			decision, release, quotaErr := l.QuotaGate.Acquire(ctx, func(d quota.Decision) {
+				kind := LogInfo
+				if d.Action == quota.ActionBlock {
+					kind = LogError
+				}
+				decision := cloneQuotaDecision(&d)
+				l.emit(LogEntry{
+					Kind:          kind,
+					Agent:         l.agentName(),
+					Message:       fmt.Sprintf("Quota %s: %s", d.Action, d.Reason),
+					QuotaDecision: decision,
+				})
+			})
+			releaseAgentSlot = release
+			if quotaErr != nil {
+				kind := claude.OutcomeAgentFailure
+				if ctx.Err() != nil {
+					kind = claude.OutcomeCancelled
+				}
+				return &claude.OutcomeError{Outcome: claude.TerminalOutcome{Kind: kind, Message: quotaErr.Error()}}
+			}
+			if decision.Action == quota.ActionBlock {
+				return &claude.OutcomeError{Outcome: claude.TerminalOutcome{
+					Kind:    claude.OutcomeQuotaExhausted,
+					Message: decision.Reason,
+					RetryAt: decision.ResumeAt,
+				}}
+			}
+		}
 
-		cost, subtype, commitsProduced, dirty, iterErr := l.iteration(ctx, i, maxIter, iterPrompt, branch)
+		cost, subtype, commitsProduced, dirty, iterErr := l.iterationWithRelease(ctx, i, maxIter, iterPrompt, branch, releaseAgentSlot)
 		if iterErr != nil {
 			return fmt.Errorf("loop: iteration %d: %w", i, iterErr)
 		}
 		totalCost += cost
+		testsPassed := true
+		if l.PostIteration != nil {
+			testsPassed = l.PostIteration(ctx)
+		} else if l.TestPlan != nil {
+			testsPassed = l.runTestPlan(ctx)
+		}
 
-		// Spec completion detection: two-signal check — previous iteration
-		// reported "success" and this iteration produced no new commits.
-		if prevSubtype == "success" && !commitsProduced && !dirty {
+		// Spec completion detection: two independent structured success signals,
+		// a clean worktree, completed declared tasks, and passing verification.
+		rawCompletion := prevSubtype == "success" && subtype == "success" && !commitsProduced && !dirty
+		if rawCompletion && !tasksComplete {
+			l.emit(LogEntry{Kind: LogInfo, Agent: l.agentName(), Message: "Completion evidence rejected because declared tasks are incomplete or unavailable"})
+		}
+		completionCandidate := rawCompletion && tasksComplete
+		if completionCandidate && testsPassed {
 			if l.Roam {
 				l.emit(LogEntry{
 					Kind:      LogSweepComplete,
@@ -160,6 +271,13 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 			}
 			return nil
 		}
+		if completionCandidate && !testsPassed {
+			l.emit(LogEntry{
+				Kind:    LogInfo,
+				Message: "Completion evidence rejected because required tests did not pass",
+				Agent:   l.agentName(),
+			})
+		}
 		if dirty {
 			l.emit(LogEntry{
 				Kind:    LogInfo,
@@ -167,13 +285,10 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 				Agent:   l.agentName(),
 			})
 			prevSubtype = ""
-		} else {
+		} else if testsPassed {
 			prevSubtype = subtype
-		}
-
-		// Run post-iteration hook (e.g., test-gated rollback from Regent)
-		if l.PostIteration != nil {
-			l.PostIteration()
+		} else {
+			prevSubtype = ""
 		}
 
 		l.emit(LogEntry{
@@ -192,10 +307,17 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 					Message: "Stop requested — exiting after this iteration",
 					Agent:   l.agentName(),
 				})
-				return nil
+				return ErrOperatorStopped
 			default:
 			}
 		}
+	}
+
+	if ludicrous {
+		return &claude.OutcomeError{Outcome: claude.TerminalOutcome{
+			Kind:    claude.OutcomeAgentFailure,
+			Message: fmt.Sprintf("ludicrous mode exhausted %s iterations without verified goal-completion evidence", iterLabel(maxIter)),
+		}}
 	}
 
 	l.emit(LogEntry{
@@ -206,6 +328,25 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 		MaxIter:   maxIter,
 	})
 	return nil
+}
+
+func (l *Loop) iterationWithRelease(ctx context.Context, n, max int, prompt, branch string, release func()) (cost float64, subtype string, commitsProduced, dirty bool, err error) {
+	defer release()
+	return l.iteration(ctx, n, max, prompt, branch)
+}
+func (l *Loop) runTestPlan(ctx context.Context) bool {
+	for _, step := range l.TestPlan.Steps {
+		l.emit(LogEntry{Kind: LogInfo, Agent: l.agentName(), Message: fmt.Sprintf("Running tests: %s (%s)", step.Command, step.Dir)})
+	}
+	result := testplan.Run(ctx, *l.TestPlan)
+	for _, step := range result.Steps {
+		if step.Passed {
+			continue
+		}
+		l.emit(LogEntry{Kind: LogError, Agent: l.agentName(), Message: fmt.Sprintf("Tests failed: %s\n%s", step.Step.Command, step.Output)})
+		break
+	}
+	return result.Passed
 }
 
 // tasksPath resolves the active spec's tasks.md path relative to the loop dir.
@@ -337,8 +478,9 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		}
 	}
 
-	// Capture HEAD before Claude runs to detect new commits afterward.
-	headBefore, _ := l.Git.LastCommit()
+	// Capture HEAD before the agent runs to detect new commits afterward. An
+	// unborn repository has no HEAD yet, so retain that state as unknown.
+	headBefore, headBeforeErr := l.Git.LastCommit()
 
 	// Run the selected agent.
 	l.emit(LogEntry{
@@ -361,10 +503,14 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		return 0, "", false, false, fmt.Errorf("start %s: %w", l.agentName(), agentErr)
 	}
 
-	// Nested agents may emit their own results; only the final aggregate result
-	// completes the Ralph iteration.
+	// Nested agents may emit their own progress; only a normalized terminal
+	// outcome completes the Ralph iteration. A terminal failure always wins
+	// over a success-looking event from the same invocation.
 	var resultDuration float64
 	var resultSeen bool
+	var terminal *claude.TerminalOutcome
+	var terminalFailure *claude.TerminalOutcome
+	terminalCount := 0
 	for ev := range events {
 		switch ev.Type {
 		case claude.EventToolUse:
@@ -395,6 +541,42 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 				Message: fmt.Sprintf("Error: %s", ev.Error),
 			})
 		}
+		if ev.Outcome != nil {
+			terminalCount++
+			outcome := *ev.Outcome
+			terminal = &outcome
+			if !outcome.Successful() {
+				terminalFailure = &outcome
+				if ev.Type == claude.EventResult {
+					l.emit(LogEntry{
+						Kind:    LogError,
+						Agent:   l.agentName(),
+						Message: fmt.Sprintf("Error: %s", outcome.Message),
+					})
+				}
+			}
+		}
+	}
+	if terminalCount > 1 {
+		l.emit(LogEntry{
+			Kind:    LogError,
+			Agent:   l.agentName(),
+			Message: fmt.Sprintf("%s emitted %d terminal events; last non-success outcome used", l.agentName(), terminalCount),
+		})
+	}
+	if terminalFailure != nil {
+		return cost, subtype, false, false, &claude.OutcomeError{Outcome: *terminalFailure}
+	}
+	if terminal == nil {
+		outcome := claude.TerminalOutcome{
+			Kind:    claude.OutcomeAgentFailure,
+			Message: fmt.Sprintf("%s stream closed without a terminal outcome", l.agentName()),
+		}
+		if ctx.Err() != nil {
+			outcome.Kind = claude.OutcomeCancelled
+			outcome.Message = ctx.Err().Error()
+		}
+		return cost, subtype, false, false, &claude.OutcomeError{Outcome: outcome}
 	}
 	if resultSeen {
 		if resultDuration <= 0 {
@@ -429,9 +611,16 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 		}
 	}
 
-	// Detect whether Claude produced new commits during this iteration.
-	headAfter, _ := l.Git.LastCommit()
-	commitsProduced = headBefore != headAfter
+	// Detect whether the agent produced new commits during this iteration.
+	headAfter, headErr := l.Git.LastCommit()
+	switch {
+	case headErr == nil && headBeforeErr == nil:
+		commitsProduced = headBefore != headAfter
+	case headErr == nil:
+		commitsProduced = headAfter != ""
+	case headBeforeErr == nil:
+		return cost, subtype, false, false, fmt.Errorf("get commit after %s: %w", l.agentName(), headErr)
+	}
 	dirty, dirtyErr := l.Git.HasUncommittedChanges()
 	if dirtyErr != nil {
 		return cost, subtype, commitsProduced, false, fmt.Errorf("check changes after %s: %w", l.agentName(), dirtyErr)
@@ -543,6 +732,19 @@ func (l *Loop) modeConfig(mode Mode) (promptFile string, maxIter int) {
 	}
 }
 
+func cloneQuotaDecision(decision *quota.Decision) *quota.Decision {
+	if decision == nil {
+		return nil
+	}
+	cloned := *decision
+	if decision.Snapshot != nil {
+		snapshot := *decision.Snapshot
+		snapshot.Windows = append([]quota.Window(nil), decision.Snapshot.Windows...)
+		cloned.Snapshot = &snapshot
+	}
+	return &cloned
+}
+
 func iterLabel(max int) string {
 	if max == 0 {
 		return "unlimited"
@@ -558,24 +760,28 @@ func (l *Loop) agentName() string {
 }
 
 func (l *Loop) agentModel() string {
-	if l.agentName() == config.AgentCodex {
+	switch l.agentName() {
+	case config.AgentCodex:
 		return l.Config.Codex.Model
+	default:
+		return l.Config.Claude.Model
 	}
-	return l.Config.Claude.Model
 }
 
 func (l *Loop) agentMaxTurns() int {
-	if l.agentName() == config.AgentCodex {
+	if l.agentName() != config.AgentClaude {
 		return 0
 	}
 	return l.Config.Claude.MaxTurns
 }
 
 func (l *Loop) agentDangerSkipPermissions() bool {
-	if l.agentName() == config.AgentCodex {
+	switch l.agentName() {
+	case config.AgentCodex:
 		return false
+	default:
+		return l.Config.Claude.DangerSkipPermissions
 	}
-	return l.Config.Claude.DangerSkipPermissions
 }
 
 // augmentPrompt appends a ## Spec Context section to the prompt when applicable.

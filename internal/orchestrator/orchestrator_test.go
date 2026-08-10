@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LISSConsulting/RalphSpec/internal/claude"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
 	"github.com/LISSConsulting/RalphSpec/internal/worktree"
 )
 
@@ -37,6 +39,59 @@ func defaultCfg() *config.Config {
 
 func newTestOrchestrator(ops worktree.WorktreeOps) *Orchestrator {
 	return New(defaultCfg(), ops)
+}
+
+type quotaTestAgent struct {
+	snapshot quota.Snapshot
+}
+
+func (a *quotaTestAgent) Run(context.Context, string, claude.RunOptions) (<-chan claude.Event, error) {
+	return nil, errors.New("not invoked")
+}
+
+func (a *quotaTestAgent) Quota(context.Context) (quota.Snapshot, error) {
+	return a.snapshot, nil
+}
+
+func TestQuotaGatesAreScopedByAgentType(t *testing.T) {
+	cfg := defaultCfg()
+	cfg.Quota.Enabled = true
+	cfg.Quota.ReservePercent = 10
+	cfg.Quota.ExhaustedPolicy = config.QuotaFailClosed
+	cfg.Quota.UnknownPolicy = config.QuotaAllow
+	cfg.Quota.MaxParallel = 1
+	o := New(cfg, &fakeWorktreeOps{})
+
+	claudeGate := o.quotaGateFor(config.AgentClaude, &quotaTestAgent{snapshot: quota.Snapshot{
+		Windows: []quota.Window{{Name: "weekly", UsedPercent: 95}},
+	}})
+	codexGate := o.quotaGateFor(config.AgentCodex, &quotaTestAgent{snapshot: quota.Snapshot{
+		Windows: []quota.Window{{Name: "weekly", UsedPercent: 20}},
+	}})
+	if claudeGate == codexGate {
+		t.Fatal("different agent types reused one quota gate")
+	}
+	if reused := o.quotaGateFor(config.AgentClaude, &quotaTestAgent{}); reused != claudeGate {
+		t.Fatal("same agent type did not reuse its quota gate")
+	}
+	blocked, err := claudeGate.Admit(context.Background(), nil)
+	if err != nil || blocked.Action != quota.ActionBlock {
+		t.Fatalf("Claude decision = %#v, %v", blocked, err)
+	}
+	allowed, err := codexGate.Admit(context.Background(), nil)
+	if err != nil || allowed.Action != quota.ActionAllow {
+		t.Fatalf("Codex decision = %#v, %v", allowed, err)
+	}
+}
+
+func TestNewWithNilConfigUsesSafeParallelDefault(t *testing.T) {
+	o := New(nil, &fakeWorktreeOps{})
+	if o.MaxParallel != 1 {
+		t.Fatalf("MaxParallel = %d, want 1", o.MaxParallel)
+	}
+	if o.cfg == nil {
+		t.Fatal("config must be initialized")
+	}
 }
 
 // ─── ActiveAgents / AgentByBranch / RunningCount ─────────────────────────────

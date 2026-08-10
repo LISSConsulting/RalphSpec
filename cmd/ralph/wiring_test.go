@@ -24,9 +24,13 @@ import (
 // errAgent is a claude.Agent stub that immediately returns an error.
 // Used in TestLoopController_StartLoop_ForwardGoroutine to ensure the loop
 // fails deterministically without requiring the real claude binary.
-type errAgent struct{ err error }
+type errAgent struct {
+	err   error
+	calls int
+}
 
 func (a *errAgent) Run(_ context.Context, _ string, _ claude.RunOptions) (<-chan claude.Event, error) {
+	a.calls++
 	return nil, a.err
 }
 
@@ -191,7 +195,7 @@ func TestStateTrackerFinish(t *testing.T) {
 		}
 	})
 
-	t.Run("context canceled treated as success", func(t *testing.T) {
+	t.Run("context canceled is stopped not passed", func(t *testing.T) {
 		dir := t.TempDir()
 		initGitRepo(t, dir)
 		runner := git.NewRunner(dir)
@@ -203,8 +207,24 @@ func TestStateTrackerFinish(t *testing.T) {
 		if err != nil {
 			t.Fatalf("LoadState: %v", err)
 		}
-		if !state.Passed {
-			t.Error("expected Passed = true for context.Canceled (normal shutdown)")
+		if state.Status != regent.StatusStopped || state.Passed {
+			t.Fatalf("state = %#v", state)
+		}
+	})
+
+	t.Run("operator stop is stopped not passed", func(t *testing.T) {
+		dir := t.TempDir()
+		initGitRepo(t, dir)
+		st := newStateTracker(dir, "build", "", git.NewRunner(dir))
+
+		st.finish(loop.ErrOperatorStopped)
+
+		state, err := regent.LoadState(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.Status != regent.StatusStopped || state.Passed {
+			t.Fatalf("state = %#v", state)
 		}
 	})
 
@@ -309,8 +329,8 @@ func TestRunWithStateTracking_ContextCanceled(t *testing.T) {
 	if loadErr != nil {
 		t.Fatalf("LoadState: %v", loadErr)
 	}
-	if !state.Passed {
-		t.Error("expected Passed = true for context.Canceled (graceful shutdown)")
+	if state.Status != regent.StatusStopped || state.Passed {
+		t.Fatalf("state = %#v; want stopped and not passed", state)
 	}
 }
 
@@ -678,6 +698,7 @@ func TestLoopController_StartLoop_CodexDashboardAllowed(t *testing.T) {
 	tuiSend := make(chan loop.LogEntry, 8)
 	cfg := config.Defaults()
 	cfg.Agent.Type = config.AgentCodex
+	cfg.Regent.Enabled = false
 	dir := t.TempDir()
 	initGitRepo(t, dir)
 	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
@@ -704,6 +725,41 @@ func TestLoopController_StartLoop_CodexDashboardAllowed(t *testing.T) {
 	}
 	if unsupported {
 		t.Fatal("did not expect dashboard-mode codex rejection")
+	}
+}
+
+func TestLoopControllerAppliesQuotaAndPersistsDecision(t *testing.T) {
+	tuiSend := make(chan loop.LogEntry, 16)
+	cfg := config.Defaults()
+	cfg.Regent.Enabled = false
+	cfg.Build.MaxIterations = 1
+	cfg.Quota.Enabled = true
+	cfg.Quota.UnknownPolicy = config.QuotaFailClosed
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	writeExecTestFile(t, dir, "BUILD.md", "# Build\n")
+	agent := &errAgent{err: errors.New("must not run")}
+
+	ctrl := &loopController{
+		cfg:       &cfg,
+		dir:       dir,
+		gitRunner: git.NewRunner(dir),
+		tuiSend:   tuiSend,
+		outerCtx:  context.Background(),
+		agent:     agent,
+	}
+	ctrl.StartLoop("build")
+	waitForIdle(t, ctrl)
+
+	if agent.calls != 0 {
+		t.Fatalf("dashboard bypassed quota gate and invoked agent %d times", agent.calls)
+	}
+	state, err := regent.LoadState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != regent.StatusPausedQuota || state.Quota == nil || state.Quota.Action != "block" {
+		t.Fatalf("state = %#v", state)
 	}
 }
 

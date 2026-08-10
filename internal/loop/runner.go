@@ -9,15 +9,19 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
 )
 
 // ClaudeAgent implements claude.Agent by spawning the Claude CLI as a subprocess.
 // It feeds the prompt via the -p flag and parses stream-JSON output.
 type ClaudeAgent struct {
 	// Executable is the path to the Claude CLI binary. Defaults to "claude".
-	Executable string
+	QuotaSnapshotFile   string
+	QuotaSnapshotMaxAge time.Duration
+	Executable          string
 }
 
 // NewClaudeAgent creates a ClaudeAgent that uses the default "claude" binary.
@@ -78,23 +82,36 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 	ch := make(chan claude.Event, 64)
 	go func() {
 		defer close(ch)
+		terminalSeen := false
 		for ev := range parsed {
+			if ev.Outcome != nil {
+				terminalSeen = true
+			}
 			ch <- ev
 		}
-		if err := cmd.Wait(); err != nil {
-			// Context cancellation produces a non-zero exit — that's expected
-			if ctx.Err() == nil {
-				msg := fmt.Sprintf("claude exited: %v", err)
-				if detail := strings.TrimSpace(stderrBuf.String()); detail != "" {
-					msg = fmt.Sprintf("claude exited: %v: %s", err, detail)
-				}
-				ch <- claude.ErrorEvent(msg)
+		waitErr := cmd.Wait()
+		switch {
+		case ctx.Err() != nil:
+			outcome := claude.TerminalOutcome{Kind: claude.OutcomeCancelled, Message: ctx.Err().Error()}
+			ch <- claude.Event{Type: claude.EventError, Timestamp: time.Now(), Error: outcome.Message, Outcome: &outcome}
+		case waitErr != nil:
+			msg := fmt.Sprintf("claude exited: %v", waitErr)
+			if detail := strings.TrimSpace(stderrBuf.String()); detail != "" {
+				msg = fmt.Sprintf("claude exited: %v: %s", waitErr, detail)
 			}
+			ch <- claude.ErrorEvent(msg)
+		case !terminalSeen:
+			ch <- claude.ErrorEvent("claude exited without a terminal result")
 		}
 		close(stdinDone)
 	}()
 
 	return ch, nil
+}
+
+// Quota returns the latest Claude status-line snapshot configured for Ralph.
+func (a *ClaudeAgent) Quota(context.Context) (quota.Snapshot, error) {
+	return claude.ReadQuotaSnapshot(a.QuotaSnapshotFile, a.QuotaSnapshotMaxAge)
 }
 
 // steerStdin writes the iteration prompt as the first stream-JSON user

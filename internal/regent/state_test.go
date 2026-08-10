@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
 )
 
 func TestSaveAndLoadState(t *testing.T) {
@@ -27,6 +30,12 @@ func TestSaveAndLoadState(t *testing.T) {
 		StartedAt:       now,
 		FinishedAt:      later,
 		Passed:          true,
+		Ludicrous:       true,
+		TestPlan: &testplan.Plan{
+			Explicit: true,
+			Steps:    []testplan.Step{{Command: "go test ./...", Confidence: testplan.ConfidenceHigh}},
+		},
+		Quota: &quota.Decision{Action: quota.ActionAllow, Reason: "quota available"},
 	}
 
 	if err := SaveState(dir, original); err != nil {
@@ -73,6 +82,12 @@ func TestSaveAndLoadState(t *testing.T) {
 	}
 	if loaded.Passed != original.Passed {
 		t.Errorf("Passed = %v, want %v", loaded.Passed, original.Passed)
+	}
+	if !loaded.Ludicrous || loaded.TestPlan == nil || len(loaded.TestPlan.Steps) != 1 {
+		t.Errorf("run metadata did not round-trip: %#v", loaded)
+	}
+	if loaded.Quota == nil || loaded.Quota.Action != quota.ActionAllow || loaded.Quota.Reason != "quota available" {
+		t.Errorf("quota decision did not round-trip: %#v", loaded.Quota)
 	}
 }
 

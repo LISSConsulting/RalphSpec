@@ -13,6 +13,7 @@ import (
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
 )
 
 // mockAgent is a test double for claude.Agent.
@@ -43,22 +44,34 @@ func (m *mockAgent) Run(_ context.Context, prompt string, opts claude.RunOptions
 	return ch, nil
 }
 
+type mockQuotaProvider struct {
+	snapshot quota.Snapshot
+	err      error
+	calls    int
+}
+
+func (m *mockQuotaProvider) Quota(context.Context) (quota.Snapshot, error) {
+	m.calls++
+	return m.snapshot, m.err
+}
+
 // mockGit is a test double for GitOps.
 type mockGit struct {
-	branch         string
-	branchErr      error // error returned by CurrentBranch
-	dirty          bool
-	dirtySequence  []bool
-	dirtyCallIdx   int
-	diffFromRemote bool
-	pullErr        error
-	pushErr        error
-	stashErr       error
-	stashPopErr    error
-	dirtyErr       error // error returned by HasUncommittedChanges
-	diffErr        error // error returned by DiffFromRemote
-	lastCommit     string
-	lastCommitErr  error
+	branch           string
+	branchErr        error // error returned by CurrentBranch
+	dirty            bool
+	dirtySequence    []bool
+	dirtyCallIdx     int
+	diffFromRemote   bool
+	pullErr          error
+	pushErr          error
+	stashErr         error
+	stashPopErr      error
+	dirtyErr         error // error returned by HasUncommittedChanges
+	diffErr          error // error returned by DiffFromRemote
+	lastCommit       string
+	lastCommitErr    error
+	lastCommitErrors []error
 
 	// lastCommitSequence, when non-empty, is consumed in order by LastCommit().
 	// Once exhausted, the final element is repeated. Takes precedence over lastCommit.
@@ -94,6 +107,17 @@ func (m *mockGit) StashPop() error                       { m.stashPopCalls++; re
 func (m *mockGit) DiffFromRemote(_ string) (bool, error) { return m.diffFromRemote, m.diffErr }
 
 func (m *mockGit) LastCommit() (string, error) {
+	if len(m.lastCommitErrors) > 0 {
+		idx := m.lastCommitCallIdx
+		if idx >= len(m.lastCommitErrors) {
+			idx = len(m.lastCommitErrors) - 1
+		}
+		m.lastCommitCallIdx++
+		if err := m.lastCommitErrors[idx]; err != nil {
+			return "", err
+		}
+		return m.lastCommit, nil
+	}
 	if m.lastCommitErr != nil {
 		return "", m.lastCommitErr
 	}
@@ -559,12 +583,33 @@ func TestLogOutput(t *testing.T) {
 		lp, buf := setupTestLoop(t, agent, git, cfg)
 		err := lp.Run(context.Background(), ModeBuild, 0)
 
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("terminal error event must fail the iteration")
 		}
-		output := buf.String()
-		if !strings.Contains(output, "something went wrong") {
+		outcome, ok := claude.AsOutcome(err)
+		if !ok || outcome.Kind != claude.OutcomeAgentFailure {
+			t.Fatalf("outcome = %#v, %v; want agent failure", outcome, ok)
+		}
+		if output := buf.String(); !strings.Contains(output, "something went wrong") {
 			t.Error("log should contain error message")
+		}
+		if output := buf.String(); !strings.Contains(output, "emitted 2 terminal events") {
+			t.Errorf("missing malformed-stream diagnostic: %s", output)
+		}
+	})
+
+	t.Run("recoverable warning followed by success", func(t *testing.T) {
+		agent := &mockAgent{events: []claude.Event{
+			claude.WarningEvent("temporary warning"),
+			claude.ResultEvent(0.01, 0.5, "success"),
+		}}
+		git := &mockGit{branch: "main", lastCommit: "abc test"}
+		cfg := defaultTestConfig()
+		cfg.Build.MaxIterations = 1
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
+			t.Fatalf("recoverable warning must not fail iteration: %v", err)
 		}
 	})
 
@@ -862,8 +907,12 @@ func TestSubtypeInLogOutput(t *testing.T) {
 
 		lp, buf := setupTestLoop(t, agent, git, cfg)
 		err := lp.Run(context.Background(), ModeBuild, 0)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("error_max_turns must fail the iteration")
+		}
+		outcome, ok := claude.AsOutcome(err)
+		if !ok || outcome.Kind != claude.OutcomeContextExhausted {
+			t.Fatalf("outcome = %#v, %v; want context exhausted", outcome, ok)
 		}
 		if !strings.Contains(buf.String(), "error_max_turns") {
 			t.Errorf("log should contain subtype 'error_max_turns', got: %s", buf.String())
@@ -1008,7 +1057,7 @@ func TestPostIteration(t *testing.T) {
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		var hookCalls int
-		lp.PostIteration = func() { hookCalls++ }
+		lp.PostIteration = func(_ context.Context) bool { hookCalls++; return true }
 
 		err := lp.Run(context.Background(), ModeBuild, 0)
 		if err != nil {
@@ -1053,9 +1102,10 @@ func TestPostIteration(t *testing.T) {
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		var hookCalled bool
 		var pushCountAtHook int
-		lp.PostIteration = func() {
+		lp.PostIteration = func(_ context.Context) bool {
 			hookCalled = true
 			pushCountAtHook = git.pushCalls
+			return true
 		}
 
 		err := lp.Run(context.Background(), ModeBuild, 0)
@@ -1249,6 +1299,24 @@ func TestPushIfNeededErrors(t *testing.T) {
 	})
 }
 
+func TestIterationFailsWhenPostAgentCommitCannotBeRead(t *testing.T) {
+	agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0.10, 1.0, "success")}}
+	git := &mockGit{
+		branch:           "main",
+		lastCommit:       "abc",
+		lastCommitErrors: []error{nil, nil, errors.New("head unavailable")},
+	}
+	cfg := defaultTestConfig()
+	cfg.Git.AutoPush = false
+	cfg.Build.MaxIterations = 1
+	lp, _ := setupTestLoop(t, agent, git, cfg)
+
+	err := lp.Run(context.Background(), ModeBuild, 0)
+	if err == nil || !strings.Contains(err.Error(), "get commit after claude: head unavailable") {
+		t.Fatalf("run error = %v", err)
+	}
+}
+
 func TestIterationContinuesOnPullError(t *testing.T) {
 	agent := &mockAgent{
 		events: []claude.Event{claude.ResultEvent(0.10, 1.0, "success")},
@@ -1353,8 +1421,8 @@ func TestRunStopAfter(t *testing.T) {
 		lp.StopAfter = stopCh
 
 		err := lp.Run(context.Background(), ModeBuild, 0)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if !errors.Is(err, ErrOperatorStopped) {
+			t.Fatalf("error = %v, want ErrOperatorStopped", err)
 		}
 		if agent.calls != 0 {
 			t.Errorf("expected 0 agent calls, got %d", agent.calls)
@@ -1376,13 +1444,14 @@ func TestRunStopAfter(t *testing.T) {
 		// Use PostIteration to close stopCh after the first iteration completes,
 		// simulating Ctrl+C between iterations.
 		lp.StopAfter = stopCh
-		lp.PostIteration = func() {
+		lp.PostIteration = func(_ context.Context) bool {
 			once.Do(func() { close(stopCh) })
+			return true
 		}
 
 		err := lp.Run(context.Background(), ModeBuild, 0)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if !errors.Is(err, ErrOperatorStopped) {
+			t.Fatalf("error = %v, want ErrOperatorStopped", err)
 		}
 		if agent.calls != 1 {
 			t.Errorf("expected 1 agent call, got %d", agent.calls)
@@ -1551,11 +1620,11 @@ func TestSpecCompletion(t *testing.T) {
 
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		err := lp.Run(context.Background(), ModeBuild, 0)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		if err == nil {
+			t.Fatal("error_max_turns must fail immediately")
 		}
-		if agent.calls != 2 {
-			t.Errorf("expected 2 agent calls (error_max_turns never triggers completion), got %d", agent.calls)
+		if agent.calls != 1 {
+			t.Errorf("expected terminal error to stop after 1 agent call, got %d", agent.calls)
 		}
 	})
 
@@ -1821,4 +1890,118 @@ func TestPromptAugmentationInRun(t *testing.T) {
 			t.Errorf("prompt should be unchanged, want %q got %q", "build prompt", agent.lastPrompt)
 		}
 	})
+}
+
+func TestQuotaAdmissionBeforeIteration(t *testing.T) {
+	agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0.1, 1, "success")}}
+	git := &mockGit{branch: "main", lastCommit: "abc test"}
+	cfg := defaultTestConfig()
+	cfg.Quota = config.QuotaConfig{
+		Enabled:         true,
+		ReservePercent:  10,
+		ExhaustedPolicy: config.QuotaFailClosed,
+		UnknownPolicy:   config.QuotaAllow,
+		MaxWaitSeconds:  60,
+	}
+	provider := &mockQuotaProvider{snapshot: quota.Snapshot{
+		Windows: []quota.Window{{Name: "weekly", UsedPercent: 95}},
+	}}
+
+	lp, buf := setupTestLoop(t, agent, git, cfg)
+	lp.QuotaGate = quota.NewGate(cfg.Quota, provider)
+	err := lp.Run(context.Background(), ModeBuild, 1)
+	outcome, ok := claude.AsOutcome(err)
+	if !ok || outcome.Kind != claude.OutcomeQuotaExhausted {
+		t.Fatalf("outcome = %#v, %v; want quota exhausted", outcome, ok)
+	}
+	if agent.calls != 0 || provider.calls != 1 {
+		t.Fatalf("agent calls = %d, quota calls = %d; want 0, 1", agent.calls, provider.calls)
+	}
+	if !strings.Contains(buf.String(), "Quota block") {
+		t.Fatalf("quota decision missing from log: %s", buf.String())
+	}
+}
+
+func TestQuotaSlotReleasedWhenAgentPanics(t *testing.T) {
+	agent := &mockAgent{onRun: func() { panic("agent panic") }}
+	git := &mockGit{branch: "main", lastCommit: "abc"}
+	cfg := defaultTestConfig()
+	cfg.Quota = config.QuotaConfig{
+		Enabled:         true,
+		ReservePercent:  10,
+		ExhaustedPolicy: config.QuotaFailClosed,
+		UnknownPolicy:   config.QuotaAllow,
+		MaxWaitSeconds:  60,
+		MaxParallel:     1,
+	}
+	gate := quota.NewGate(cfg.Quota, &mockQuotaProvider{})
+	lp, _ := setupTestLoop(t, agent, git, cfg)
+	lp.QuotaGate = gate
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Fatal("expected agent panic")
+			}
+		}()
+		_ = lp.Run(context.Background(), ModeBuild, 1)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	decision, release, err := gate.Acquire(ctx, nil)
+	if err != nil {
+		t.Fatalf("quota slot leaked after panic: %v", err)
+	}
+	defer release()
+	if decision.Action != quota.ActionAllow {
+		t.Fatalf("decision = %#v", decision)
+	}
+}
+
+func TestInitialQuotaSlotHeldForEntireRun(t *testing.T) {
+	secondStarted := make(chan struct{})
+	unblockSecond := make(chan struct{})
+	var agent *mockAgent
+	agent = &mockAgent{
+		events: []claude.Event{claude.ResultEvent(0.1, 1, "success")},
+		onRun: func() {
+			if agent.calls == 2 {
+				close(secondStarted)
+				<-unblockSecond
+			}
+		},
+	}
+	git := &mockGit{
+		branch:             "main",
+		lastCommitSequence: []string{"h0", "h0", "h1", "h1", "h2"},
+	}
+	cfg := defaultTestConfig()
+	cfg.Build.MaxIterations = 2
+	lp, _ := setupTestLoop(t, agent, git, cfg)
+	released := make(chan struct{})
+	lp.InitialQuotaRelease = func() { close(released) }
+	lp.InitialQuotaDecision = &quota.Decision{Action: quota.ActionAllow, Reason: "admitted"}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- lp.Run(context.Background(), ModeBuild, 0) }()
+	select {
+	case <-secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("second iteration did not start")
+	}
+	select {
+	case <-released:
+		t.Fatal("initial quota slot released before the worker run finished")
+	default:
+	}
+	close(unblockSecond)
+	if err := <-errCh; err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("initial quota slot not released after worker run finished")
+	}
 }

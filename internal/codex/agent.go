@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
 )
@@ -59,15 +60,26 @@ func (a *Agent) Run(ctx context.Context, prompt string, opts claude.RunOptions) 
 	ch := make(chan claude.Event, 64)
 	go func() {
 		defer close(ch)
+		terminalSeen := false
 		for ev := range parsed {
+			if ev.Outcome != nil {
+				terminalSeen = true
+			}
 			ch <- ev
 		}
-		if err := cmd.Wait(); err != nil && ctx.Err() == nil {
-			msg := fmt.Sprintf("codex exited: %v", err)
+		waitErr := cmd.Wait()
+		switch {
+		case ctx.Err() != nil:
+			outcome := claude.TerminalOutcome{Kind: claude.OutcomeCancelled, Message: ctx.Err().Error()}
+			ch <- claude.Event{Type: claude.EventError, Timestamp: time.Now(), Error: outcome.Message, Outcome: &outcome}
+		case waitErr != nil:
+			msg := fmt.Sprintf("codex exited: %v", waitErr)
 			if detail := strings.TrimSpace(stderrBuf.String()); detail != "" {
-				msg = fmt.Sprintf("codex exited: %v: %s", err, detail)
+				msg = fmt.Sprintf("codex exited: %v: %s", waitErr, detail)
 			}
 			ch <- claude.ErrorEvent(msg)
+		case !terminalSeen:
+			ch <- claude.ErrorEvent("codex exited without a terminal result")
 		}
 		close(stdinDone)
 	}()

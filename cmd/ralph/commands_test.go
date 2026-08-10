@@ -19,6 +19,35 @@ import (
 
 func isWindows() bool { return runtime.GOOS == "windows" }
 
+func TestTestsDetectCommandJSON(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"packageManager":"npm@11","scripts":{"test":"node --test"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := testDetectCmd()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tests detect: %v", err)
+	}
+	for _, want := range []string{`"command":"npm test"`, `"confidence":"high"`, `"explicit":false`} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("JSON output missing %q: %s", want, output.String())
+		}
+	}
+}
+
+func TestBuildCommandsExposeLudicrousFlag(t *testing.T) {
+	for _, cmd := range []*cobra.Command{buildCmd(), loopBuildCmd()} {
+		flag := cmd.Flags().Lookup("ludicrous")
+		if flag == nil || flag.DefValue != "false" {
+			t.Fatalf("%s ludicrous flag = %#v", cmd.CommandPath(), flag)
+		}
+	}
+}
+
 func TestFormatSpecList(t *testing.T) {
 	tests := []struct {
 		name     string

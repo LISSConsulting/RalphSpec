@@ -140,7 +140,7 @@ func TestParseStream(t *testing.T) {
 			}{},
 		},
 		{
-			name:  "result event with is_error emits error then result",
+			name:  "result event with is_error emits one terminal error",
 			input: `{"type":"result","cost_usd":0.08,"duration_ms":3000,"is_error":true,"result":"API rate limit exceeded"}`,
 			events: []struct {
 				typ      EventType
@@ -150,8 +150,7 @@ func TestParseStream(t *testing.T) {
 				errMsg   string
 				subtype  string
 			}{
-				{typ: EventError, errMsg: "API rate limit exceeded"},
-				{typ: EventResult, costUSD: 0.08},
+				{typ: EventError, errMsg: "API rate limit exceeded", costUSD: 0.08},
 			},
 		},
 		{
@@ -165,8 +164,7 @@ func TestParseStream(t *testing.T) {
 				errMsg   string
 				subtype  string
 			}{
-				{typ: EventError, errMsg: "claude run failed"},
-				{typ: EventResult, costUSD: 0.01},
+				{typ: EventError, errMsg: "claude run failed", costUSD: 0.01},
 			},
 		},
 		{
@@ -194,8 +192,7 @@ func TestParseStream(t *testing.T) {
 				errMsg   string
 				subtype  string
 			}{
-				{typ: EventError, errMsg: "Hit maximum turns"},
-				{typ: EventResult, costUSD: 0.30, subtype: "error_max_turns"},
+				{typ: EventError, errMsg: "Hit maximum turns", costUSD: 0.30, subtype: "error_max_turns"},
 			},
 		},
 		{

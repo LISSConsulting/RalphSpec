@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LISSConsulting/RalphSpec/internal/claude"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
 )
@@ -123,6 +124,62 @@ func TestSupervise(t *testing.T) {
 			t.Errorf("error should mention max retries, got: %v", err)
 		}
 	})
+	t.Run("quota exhaustion pauses without retry", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := defaultTestRegentConfig()
+		events := make(chan loop.LogEntry, 128)
+		rgt := New(cfg, dir, &mockGit{branch: "main"}, events)
+		calls := 0
+		reset := time.Now().Add(time.Hour).Round(time.Second)
+
+		err := rgt.Supervise(context.Background(), func(context.Context) error {
+			calls++
+			if calls == 1 {
+				return errors.New("transient provider failure")
+			}
+			return &claude.OutcomeError{Outcome: claude.TerminalOutcome{
+				Kind:    claude.OutcomeQuotaExhausted,
+				Message: "weekly quota exhausted",
+				RetryAt: reset,
+			}}
+		})
+		if err == nil || calls != 2 {
+			t.Fatalf("err = %v, calls = %d; want one retry then a blocked attempt", err, calls)
+		}
+		state, loadErr := LoadState(dir)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		if state.Status != StatusPausedQuota || state.ConsecutiveErrs != 0 || !state.ResumeAt.Equal(reset) {
+			t.Fatalf("state = %#v; want paused quota without retries", state)
+		}
+	})
+
+	t.Run("authentication blocks without retry", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := defaultTestRegentConfig()
+		events := make(chan loop.LogEntry, 128)
+		rgt := New(cfg, dir, &mockGit{branch: "main"}, events)
+		calls := 0
+
+		err := rgt.Supervise(context.Background(), func(context.Context) error {
+			calls++
+			return &claude.OutcomeError{Outcome: claude.TerminalOutcome{
+				Kind:    claude.OutcomeAuthenticationRequired,
+				Message: "login required",
+			}}
+		})
+		if err == nil || calls != 1 {
+			t.Fatalf("err = %v, calls = %d; want one blocked attempt", err, calls)
+		}
+		state, loadErr := LoadState(dir)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		if state.Status != StatusBlocked || state.ConsecutiveErrs != 0 || state.BlockReason != "login required" {
+			t.Fatalf("state = %#v; want blocked operator action", state)
+		}
+	})
 
 	t.Run("context cancellation stops supervision", func(t *testing.T) {
 		dir := t.TempDir()
@@ -172,8 +229,8 @@ func TestSupervise(t *testing.T) {
 		if state.FinishedAt.IsZero() {
 			t.Error("expected FinishedAt to be set on context cancellation")
 		}
-		if !state.Passed {
-			t.Error("expected Passed = true on context cancellation (user-initiated stop)")
+		if state.Passed || state.Status != StatusStopped {
+			t.Errorf("cancelled state = passed:%v status:%q, want stopped and not passed", state.Passed, state.Status)
 		}
 	})
 
@@ -206,8 +263,8 @@ func TestSupervise(t *testing.T) {
 		if state.FinishedAt.IsZero() {
 			t.Error("expected FinishedAt to be set when context cancelled after failure")
 		}
-		if !state.Passed {
-			t.Error("expected Passed = true on context cancellation (user-initiated stop)")
+		if state.Passed || state.Status != StatusStopped {
+			t.Errorf("cancelled state = passed:%v status:%q, want stopped and not passed", state.Passed, state.Status)
 		}
 	})
 
@@ -328,6 +385,27 @@ func TestSupervise(t *testing.T) {
 		}
 		if !foundStart {
 			t.Errorf("expected 'Starting Ralph' message, got: %v", regentMsgs)
+		}
+	})
+
+	t.Run("operator stop persists stopped without retry", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := defaultTestRegentConfig()
+		events := make(chan loop.LogEntry, 128)
+		rgt := New(cfg, dir, &mockGit{branch: "main"}, events)
+
+		err := rgt.Supervise(context.Background(), func(_ context.Context) error {
+			return loop.ErrOperatorStopped
+		})
+		if !errors.Is(err, loop.ErrOperatorStopped) {
+			t.Fatalf("error = %v, want ErrOperatorStopped", err)
+		}
+		state, loadErr := LoadState(dir)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		if state.Status != StatusStopped || state.Passed || state.ConsecutiveErrs != 0 {
+			t.Fatalf("state = %#v", state)
 		}
 	})
 }
@@ -558,7 +636,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		g := &mockGit{branch: "main", lastCommit: "abc test"}
 		rgt := New(cfg, dir, g, events)
 
-		rgt.RunPostIterationTests()
+		rgt.RunPostIterationTests(context.Background())
 		if len(g.revertCalls) != 0 {
 			t.Error("should not revert when rollback is disabled")
 		}
@@ -573,7 +651,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		g := &mockGit{branch: "main", lastCommit: "abc test"}
 		rgt := New(cfg, dir, g, events)
 
-		rgt.RunPostIterationTests()
+		rgt.RunPostIterationTests(context.Background())
 		// No panic, no revert = success
 		if len(g.revertCalls) != 0 {
 			t.Error("should not revert when test command is empty")
@@ -594,7 +672,7 @@ func TestRunPostIterationTests(t *testing.T) {
 			}
 		}()
 
-		rgt.RunPostIterationTests()
+		rgt.RunPostIterationTests(context.Background())
 		if len(g.revertCalls) != 0 {
 			t.Error("should not revert when tests pass")
 		}
@@ -614,7 +692,7 @@ func TestRunPostIterationTests(t *testing.T) {
 			}
 		}()
 
-		rgt.RunPostIterationTests()
+		rgt.RunPostIterationTests(context.Background())
 		if len(g.revertCalls) != 1 {
 			t.Fatalf("expected 1 revert call, got %d", len(g.revertCalls))
 		}
@@ -635,7 +713,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		g := &mockGit{branch: "main", lastCommit: "abc commit"}
 		rgt := New(cfg, dir, g, events)
 
-		rgt.RunPostIterationTests()
+		rgt.RunPostIterationTests(context.Background())
 
 		// Drain events and verify regent messages were emitted
 		close(events)
@@ -679,7 +757,7 @@ func TestRunPostIterationTests(t *testing.T) {
 		}()
 
 		// Should not panic; emits "Failed to revert" event
-		rgt.RunPostIterationTests()
+		rgt.RunPostIterationTests(context.Background())
 	})
 }
 
@@ -737,7 +815,7 @@ func TestRunPostIterationTests_RunTestsError(t *testing.T) {
 	g := &mockGit{branch: "main", lastCommit: "abc123 commit"}
 	rgt := New(cfg, dir, g, events)
 
-	rgt.RunPostIterationTests()
+	rgt.RunPostIterationTests(context.Background())
 
 	close(events)
 	var found bool

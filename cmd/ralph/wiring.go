@@ -15,6 +15,7 @@ import (
 	"github.com/LISSConsulting/RalphSpec/internal/git"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
 	"github.com/LISSConsulting/RalphSpec/internal/orchestrator"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
 	"github.com/LISSConsulting/RalphSpec/internal/regent"
 	"github.com/LISSConsulting/RalphSpec/internal/spec"
 	"github.com/LISSConsulting/RalphSpec/internal/store"
@@ -29,6 +30,8 @@ func runWithRegent(ctx context.Context, lp *loop.Loop, cfg *config.Config, gitRu
 	lp.Events = events
 
 	rgt := regent.New(cfg.Regent, dir, gitRunner, events)
+	rgt.SetTestPlan(lp.TestPlan)
+	rgt.SetLudicrous(cfg.Build.Ludicrous && !lp.Roam)
 	lp.PostIteration = rgt.RunPostIterationTests
 
 	// Drain events to stdout and update regent state
@@ -54,6 +57,9 @@ func runWithRegent(ctx context.Context, lp *loop.Loop, cfg *config.Config, gitRu
 	// UpdateState calls are complete and a single flush produces the correct
 	// final state on disk.
 	rgt.FlushState()
+	if errors.Is(err, loop.ErrOperatorStopped) {
+		return nil
+	}
 	return err
 }
 
@@ -78,6 +84,8 @@ func runWithRegentTUI(ctx context.Context, lp *loop.Loop, cfg *config.Config, gi
 	lp.Events = loopEvents
 	rgt := regent.New(cfg.Regent, dir, gitRunner, tuiEvents)
 	lp.PostIteration = rgt.RunPostIterationTests
+	rgt.SetTestPlan(lp.TestPlan)
+	rgt.SetLudicrous(cfg.Build.Ludicrous && !lp.Roam)
 
 	steerCh := make(chan string, 32)
 	lp.Steer = steerCh
@@ -122,7 +130,7 @@ func runWithRegentTUI(ctx context.Context, lp *loop.Loop, cfg *config.Config, gi
 	if tuiErr != nil {
 		return tuiErr
 	}
-	if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
+	if loopErr != nil && !errors.Is(loopErr, context.Canceled) && !errors.Is(loopErr, loop.ErrOperatorStopped) {
 		return loopErr
 	}
 	return nil
@@ -155,6 +163,7 @@ func runWithStateTracking(ctx context.Context, lp *loop.Loop, dir string, gitRun
 	lp.Events = events
 
 	st := newStateTracker(dir, mode, lp.AgentType, gitRunner)
+	st.configure(lp)
 	st.save()
 
 	drainDone := make(chan struct{})
@@ -174,6 +183,9 @@ func runWithStateTracking(ctx context.Context, lp *loop.Loop, dir string, gitRun
 	<-drainDone
 
 	st.finish(runErr)
+	if errors.Is(runErr, loop.ErrOperatorStopped) {
+		return nil
+	}
 	return runErr
 }
 
@@ -201,6 +213,7 @@ func runWithTUIAndState(ctx context.Context, lp *loop.Loop, dir string, gitRunne
 	lp.Steer = steerCh
 
 	st := newStateTracker(dir, mode, lp.AgentType, gitRunner)
+	st.configure(lp)
 	st.save()
 
 	specFiles, _ := spec.List(dir)
@@ -243,7 +256,7 @@ func runWithTUIAndState(ctx context.Context, lp *loop.Loop, dir string, gitRunne
 	if tuiErr != nil {
 		return tuiErr
 	}
-	if loopErr != nil && !errors.Is(loopErr, context.Canceled) {
+	if loopErr != nil && !errors.Is(loopErr, context.Canceled) && !errors.Is(loopErr, loop.ErrOperatorStopped) {
 		return loopErr
 	}
 	return nil
@@ -268,8 +281,17 @@ func newStateTracker(dir, mode, agent string, gitRunner *git.Runner) *stateTrack
 			Mode:         mode,
 			StartedAt:    now,
 			LastOutputAt: now,
+			Status:       regent.StatusRunning,
 		},
 	}
+}
+
+func (s *stateTracker) configure(lp *loop.Loop) {
+	if lp == nil {
+		return
+	}
+	s.state.Ludicrous = lp.Config != nil && lp.Config.Build.Ludicrous && !lp.Roam
+	s.state.TestPlan = lp.TestPlan
 }
 
 func (s *stateTracker) trackEntry(entry loop.LogEntry) {
@@ -298,19 +320,64 @@ func (s *stateTracker) trackEntry(entry loop.LogEntry) {
 		s.state.Mode = entry.Mode
 		changed = true
 	}
+	if entry.Ludicrous {
+		s.state.Ludicrous = true
+		changed = true
+	}
+	if entry.QuotaDecision != nil {
+		s.state.Quota = entry.QuotaDecision
+		changed = true
+	}
 	s.state.LastOutputAt = time.Now()
 	if changed {
 		s.save()
 	}
 }
-
 func (s *stateTracker) save() {
 	_ = regent.SaveState(s.dir, s.state)
 }
 
 func (s *stateTracker) finish(err error) {
 	s.state.FinishedAt = time.Now()
-	s.state.Passed = err == nil || errors.Is(err, context.Canceled)
+	if errors.Is(err, loop.ErrOperatorStopped) {
+		s.state.Passed = false
+		s.state.Status = regent.StatusStopped
+		s.state.BlockReason = err.Error()
+		s.save()
+		return
+	}
+	if outcome, ok := claude.AsOutcome(err); ok {
+		s.state.BlockReason = outcome.Message
+		s.state.ResumeAt = outcome.RetryAt
+		switch outcome.Kind {
+		case claude.OutcomeQuotaExhausted:
+			s.state.Passed = false
+			s.state.Status = regent.StatusPausedQuota
+			s.save()
+			return
+		case claude.OutcomeAuthenticationRequired:
+			s.state.Passed = false
+			s.state.Status = regent.StatusBlocked
+			s.save()
+			return
+		case claude.OutcomeCancelled:
+			s.state.Passed = false
+			s.state.Status = regent.StatusStopped
+			s.save()
+			return
+		}
+	}
+	switch {
+	case err == nil:
+		s.state.Passed = true
+		s.state.Status = regent.StatusPassed
+	case errors.Is(err, context.Canceled):
+		s.state.Passed = false
+		s.state.Status = regent.StatusStopped
+	default:
+		s.state.Passed = false
+		s.state.Status = regent.StatusFailed
+	}
 	s.save()
 }
 
@@ -416,6 +483,12 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 			return
 		}
 	}
+	testPlan, err := discoverRunTestPlan(lc.cfg, lc.dir)
+	if err != nil {
+		lc.emitLoopError(err)
+		return
+	}
+
 	lp := &loop.Loop{
 		Agent:     agent,
 		AgentType: agentType,
@@ -423,9 +496,39 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 		Config:    lc.cfg,
 		Dir:       lc.dir,
 		Steer:     lc.steerCh,
+		TestPlan:  testPlan,
 	}
+	if lc.cfg.Quota.Enabled {
+		var provider quota.Provider
+		if supported, ok := agent.(quota.Provider); ok {
+			provider = supported
+		}
+		lp.QuotaGate = quota.NewGate(lc.cfg.Quota, provider)
+	}
+	if mode == "roam" {
+		lp.Roam = true
+		lp.Focus = lc.cfg.Roam.Focus
+	} else if branch, branchErr := lc.gitRunner.CurrentBranch(); branchErr == nil {
+		if activeSpec, resolveErr := spec.Resolve(lc.dir, "", branch); resolveErr == nil {
+			lp.Spec = activeSpec.Name
+			lp.SpecDir = activeSpec.Dir
+		}
+	}
+
 	loopEvents := make(chan loop.LogEntry, 128)
 	lp.Events = loopEvents
+	var rgt *regent.Regent
+	var tracker *stateTracker
+	if lc.cfg.Regent.Enabled {
+		rgt = regent.New(lc.cfg.Regent, lc.dir, lc.gitRunner, loopEvents)
+		rgt.SetTestPlan(testPlan)
+		rgt.SetLudicrous(lc.cfg.Build.Ludicrous && !lp.Roam)
+		lp.PostIteration = rgt.RunPostIterationTests
+	} else {
+		tracker = newStateTracker(lc.dir, mode, agentType, lc.gitRunner)
+		tracker.configure(lp)
+		tracker.save()
+	}
 
 	forwardDone := make(chan struct{})
 	go func() {
@@ -434,6 +537,13 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 			if lc.sw != nil {
 				_ = lc.sw.Append(entry)
 			}
+			if rgt != nil {
+				if entry.Kind != loop.LogRegent {
+					rgt.UpdateState(entry)
+				}
+			} else {
+				tracker.trackEntry(entry)
+			}
 			select {
 			case lc.tuiSend <- entry:
 			default:
@@ -441,21 +551,28 @@ func (lc *loopController) runLoop(ctx context.Context, mode string, done chan st
 		}
 	}()
 
-	if mode == "roam" {
-		lp.Roam = true
-		lp.Focus = lc.cfg.Roam.Focus
+	run := func(runCtx context.Context) error {
+		return lp.Run(runCtx, loop.ModeBuild, 0)
 	}
-	runErr := lp.Run(ctx, loop.ModeBuild, 0)
+	var runErr error
+	if rgt != nil {
+		runErr = rgt.Supervise(ctx, run)
+	} else {
+		runErr = run(ctx)
+	}
 
 	close(loopEvents)
 	<-forwardDone
+	if rgt != nil {
+		rgt.FlushState()
+	} else {
+		tracker.finish(runErr)
+	}
 
 	lc.mu.Lock()
 	lc.cancel = nil
 	lc.done = nil
 	lc.mu.Unlock()
-
-	_ = runErr
 }
 
 func (lc *loopController) emitLoopError(err error) {

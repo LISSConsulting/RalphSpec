@@ -66,6 +66,7 @@ func rootCmd() *cobra.Command {
 		loopCmd(),
 		// Worktree management
 		worktreeCmd(),
+		testsCmd(),
 		// Project management
 		statusCmd(),
 		initCmd(),

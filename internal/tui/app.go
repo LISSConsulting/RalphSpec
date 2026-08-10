@@ -640,6 +640,9 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 	}
 	if entry.Mode != "" {
 		m.mode = entry.Mode
+		if entry.Ludicrous {
+			m.mode += " (ludicrous)"
+		}
 	}
 	if entry.Agent != "" {
 		m.agent = entry.Agent

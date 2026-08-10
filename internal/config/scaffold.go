@@ -163,13 +163,24 @@ var configScaffoldSections = []configScaffoldSection{
 		{key: "model", line: `model = "sonnet"`},
 		{key: "max_turns", line: `max_turns = 0  # 0 = unlimited agentic turns per iteration`},
 		{key: "danger_skip_permissions", line: `danger_skip_permissions = true`},
+		{key: "quota_snapshot_file", line: `quota_snapshot_file = ""  # JSON written by a Claude status-line script`},
+		{key: "quota_snapshot_max_age_seconds", line: `quota_snapshot_max_age_seconds = 300`},
 	}},
 	{name: "codex", entries: []configScaffoldEntry{
 		{key: "model", line: `model = ""`},
 	}},
+	{name: "quota", entries: []configScaffoldEntry{
+		{key: "enabled", line: `enabled = false`},
+		{key: "reserve_percent", line: `reserve_percent = 10`},
+		{key: "exhausted_policy", line: `exhausted_policy = "fail_closed"  # fail_closed or wait`},
+		{key: "unknown_policy", line: `unknown_policy = "allow"          # allow or fail_closed`},
+		{key: "max_wait_seconds", line: `max_wait_seconds = 3600`},
+		{key: "max_parallel", line: `max_parallel = 1 # cap concurrent agent invocations sharing this quota gate`},
+	}},
 	{name: "build", entries: []configScaffoldEntry{
 		{key: "prompt_file", line: `prompt_file = "BUILD.md"`},
 		{key: "max_iterations", line: `max_iterations = 0  # 0 = unlimited`},
+		{key: "ludicrous", line: `ludicrous = false  # persist until objective completion evidence exists`},
 	}},
 	{name: "roam", entries: []configScaffoldEntry{
 		{key: "enabled", line: `enabled = false     # roam freely across the codebase (--roam flag overrides)`},
@@ -185,6 +196,7 @@ var configScaffoldSections = []configScaffoldSection{
 		{key: "enabled", line: `enabled = true`},
 		{key: "rollback_on_test_failure", line: `rollback_on_test_failure = false`},
 		{key: "test_command", line: `test_command = ""`},
+		{key: "auto_discover_tests", line: `auto_discover_tests = false`},
 		{key: "max_retries", line: `max_retries = 3`},
 		{key: "retry_backoff_seconds", line: `retry_backoff_seconds = 30`},
 		{key: "hang_timeout_seconds", line: `hang_timeout_seconds = 300`},

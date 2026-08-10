@@ -307,17 +307,33 @@ name = "MyProject"
 [agent]
 type = "claude"               # claude or codex
 
+[harness]
+claude = "claude"             # executable overrides also support provider shims
+codex = "codex"
+
 [claude]
-model = "sonnet"              # Claude model to use
+model = "sonnet"
 max_turns = 0                 # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
+quota_snapshot_file = ""      # status-line JSON snapshot written by operator tooling
+quota_snapshot_max_age_seconds = 300
 
 [codex]
-model = ""                    # optional Codex model override
+model = ""
+
+
+[quota]
+enabled = false
+reserve_percent = 10
+exhausted_policy = "fail_closed" # fail_closed or wait
+unknown_policy = "allow"          # allow or fail_closed
+max_wait_seconds = 3600
+max_parallel = 1                  # shared cap across parallel worktree agents
 
 [build]
 prompt_file = "BUILD.md"      # prompt template for build iterations
 max_iterations = 0            # 0 = unlimited
+ludicrous = false             # require structured completion and passing configured tests
 
 [roam]
 enabled = false               # --roam flag overrides this
@@ -333,6 +349,7 @@ auto_push = true              # push after each commit
 enabled = true
 rollback_on_test_failure = false
 test_command = "go test ./..."
+auto_discover_tests = false   # discover a deterministic plan when test_command is empty
 max_retries = 3
 retry_backoff_seconds = 30
 hang_timeout_seconds = 300    # kill if no output for 5 min
@@ -355,9 +372,11 @@ merge_target  = ""            # target branch for auto-merge (default: current b
 path_template = ""            # worktree directory template (uses worktrunk default)
 ```
 
-Agent selection precedence is explicit: a `--agent claude` or `--agent codex` flag applies to that run only, then Ralph falls back to `[agent].type`, then to Claude as the built-in default. Ralph rejects unknown agent names and does not silently fall back from Codex to Claude.
+Agent selection precedence is explicit: `--agent` applies to one run, followed by `[agent].type`, then Claude. Supported values are `claude` and `codex`; unknown values fail instead of silently falling back.
 
-Codex prerequisites are checked at run start. If `codex` is missing from `PATH`, not authenticated, or fails to start, Ralph stops before doing work and reports an actionable setup error. Use `codex --help` and `codex login` to verify local setup before selecting Codex.
+Quota admission is opt-in. Codex reads current account rate limits from its documented app-server RPC. Claude reads the latest status-line JSON snapshot from `quota_snapshot_file`; it does not make a hidden API request. Quota exhaustion pauses Regent without consuming generic retries; authentication failures block for operator action.
+
+When `auto_discover_tests = true`, Ralph snapshots one high-confidence plan before agent work. Explicit `test_command` always wins. Recognized metadata includes root `justfile` aggregate gates, package-manager `scripts.test`, Python projects that declare pytest, Go modules/workspaces, and Cargo packages/workspaces. Use `ralph tests detect` to preview and `ralph tests run` to execute the same plan.
 
 ### 🔑 Environment Variables
 
@@ -402,6 +421,13 @@ Codex prerequisites are checked at run start. If `codex` is missing from `PATH`,
 | `ralph loop build` | 🔨 Build mode loop |
 | `ralph loop run` | 🔁 Run the build loop; use `--roam` for codebase-wide roaming |
 
+### Test Plan Commands
+
+| Command | Description |
+|---------|-------------|
+| `ralph tests detect [--json]` | Preview the run-start test plan without executing commands |
+| `ralph tests run [--json]` | Execute every high-confidence step; fail on inconclusive discovery |
+
 ### Flags (all loop commands)
 
 | Flag | Description |
@@ -413,6 +439,7 @@ Codex prerequisites are checked at run start. If `codex` is missing from `PATH`,
 | `--focus "<topic>"` | Constrain roam to a specific topic (e.g. `"UI/UX"`, `"tests"`) |
 | `--worktree` / `-w` | Run loop in an isolated git worktree via worktrunk |
 | `--agent claude\|codex` | Override the configured agent for this invocation only |
+| `--ludicrous` | Build until independent structured completion signals and required test evidence pass |
 
 ### Examples
 
@@ -446,6 +473,9 @@ ralph loop run --agent codex --no-tui
 
 # 🔮 Run Codex from an isolated worktree
 ralph build --worktree --agent codex
+
+# Goal-persistent build with evidence-gated completion
+ralph build --ludicrous --no-tui
 ```
 
 ---
@@ -508,10 +538,8 @@ ralph build --worktree --agent codex
 
 | Agent | Status | Description |
 |-------|:------:|-------------|
-| 🤖 Claude Code CLI | ✅ | Default — streaming JSON event parser, full integration |
-| 🔮 OpenAI Codex | ✅ | Opt-in via `[agent].type = "codex"` or `--agent codex`; runs unconstrained for autonomous execution and supports CLI, dashboard, worktree, and status/history attribution |
-| 💎 Gemini | 🔜 | Planned |
-| 🔧 Custom | 🔜 | Bring your own agent via adapter interface |
+| Claude Code CLI | Supported | Default stream-JSON adapter; optional cached status-line quota snapshots |
+| OpenAI Codex | Supported | CLI/app-server adapter with direct account rate-limit preflight |
 
 ### Codex Troubleshooting
 

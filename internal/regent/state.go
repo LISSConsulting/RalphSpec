@@ -8,22 +8,43 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
+)
+
+// Status is the persisted lifecycle state of a supervised run.
+type Status string
+
+const (
+	StatusRunning     Status = "running"
+	StatusPausedQuota Status = "paused_quota"
+	StatusBlocked     Status = "blocked_action"
+	StatusPassed      Status = "passed"
+	StatusFailed      Status = "failed"
+	StatusStopped     Status = "stopped"
 )
 
 // State tracks the Regent's operational state, persisted to .ralph/regent-state.json.
 type State struct {
-	RalphPID        int       `json:"ralph_pid"`
-	Iteration       int       `json:"iteration"`
-	ConsecutiveErrs int       `json:"consecutive_errors"`
-	LastOutputAt    time.Time `json:"last_output_at"`
-	Agent           string    `json:"agent"`
-	LastCommit      string    `json:"last_commit"`
-	TotalCostUSD    float64   `json:"total_cost_usd"`
-	Branch          string    `json:"branch"`
-	Mode            string    `json:"mode"`
-	StartedAt       time.Time `json:"started_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	Passed          bool      `json:"passed"`
+	RalphPID        int             `json:"ralph_pid"`
+	Iteration       int             `json:"iteration"`
+	ConsecutiveErrs int             `json:"consecutive_errors"`
+	LastOutputAt    time.Time       `json:"last_output_at"`
+	Agent           string          `json:"agent"`
+	LastCommit      string          `json:"last_commit"`
+	TotalCostUSD    float64         `json:"total_cost_usd"`
+	Branch          string          `json:"branch"`
+	Mode            string          `json:"mode"`
+	StartedAt       time.Time       `json:"started_at"`
+	FinishedAt      time.Time       `json:"finished_at"`
+	Passed          bool            `json:"passed"`
+	Status          Status          `json:"status"`
+	BlockReason     string          `json:"block_reason,omitempty"`
+	ResumeAt        time.Time       `json:"resume_at,omitempty"`
+	Ludicrous       bool            `json:"ludicrous,omitempty"`
+	TestPlan        *testplan.Plan  `json:"test_plan,omitempty"`
+	Quota           *quota.Decision `json:"quota,omitempty"`
 }
 
 // stateFileName is the path within the .ralph directory.

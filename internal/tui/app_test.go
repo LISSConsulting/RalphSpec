@@ -205,6 +205,7 @@ func TestUpdate_LogEntry_MetadataExtracted(t *testing.T) {
 		Agent:     "codex",
 		Branch:    "feat/test",
 		Mode:      "build",
+		Ludicrous: true,
 		TotalCost: 0.05,
 	}
 	updated, _ := m.Update(logEntryMsg(entry))
@@ -216,8 +217,8 @@ func TestUpdate_LogEntry_MetadataExtracted(t *testing.T) {
 	if m2.branch != "feat/test" {
 		t.Errorf("branch = %q, want \"feat/test\"", m2.branch)
 	}
-	if m2.mode != "build" {
-		t.Errorf("mode = %q, want \"build\"", m2.mode)
+	if m2.mode != "build (ludicrous)" {
+		t.Errorf("mode = %q, want \"build (ludicrous)\"", m2.mode)
 	}
 	if m2.agent != "codex" {
 		t.Errorf("agent = %q, want \"codex\"", m2.agent)

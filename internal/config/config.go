@@ -26,6 +26,7 @@ type Config struct {
 	Harness       HarnessConfig       `toml:"harness"`
 	Claude        ClaudeConfig        `toml:"claude"`
 	Codex         CodexConfig         `toml:"codex"`
+	Quota         QuotaConfig         `toml:"quota"`
 	Build         BuildConfig         `toml:"build"`
 	Roam          RoamConfig          `toml:"roam"`
 	Git           GitConfig           `toml:"git"`
@@ -98,9 +99,11 @@ type ProjectConfig struct {
 
 // ClaudeConfig controls the Claude CLI invocation.
 type ClaudeConfig struct {
-	Model                 string `toml:"model"`
-	MaxTurns              int    `toml:"max_turns"`
-	DangerSkipPermissions bool   `toml:"danger_skip_permissions"`
+	Model                      string `toml:"model"`
+	MaxTurns                   int    `toml:"max_turns"`
+	DangerSkipPermissions      bool   `toml:"danger_skip_permissions"`
+	QuotaSnapshotFile          string `toml:"quota_snapshot_file"`
+	QuotaSnapshotMaxAgeSeconds int    `toml:"quota_snapshot_max_age_seconds"`
 }
 
 // CodexConfig controls the Codex CLI invocation.
@@ -112,6 +115,7 @@ type CodexConfig struct {
 type BuildConfig struct {
 	PromptFile    string `toml:"prompt_file"`
 	MaxIterations int    `toml:"max_iterations"`
+	Ludicrous     bool   `toml:"ludicrous"`
 }
 
 // RoamConfig controls codebase-wide roaming mode.
@@ -133,10 +137,27 @@ type RegentConfig struct {
 	Enabled               bool   `toml:"enabled"`
 	RollbackOnTestFailure bool   `toml:"rollback_on_test_failure"`
 	TestCommand           string `toml:"test_command"`
+	AutoDiscoverTests     bool   `toml:"auto_discover_tests"`
 	MaxRetries            int    `toml:"max_retries"`
 	RetryBackoffSeconds   int    `toml:"retry_backoff_seconds"`
 	HangTimeoutSeconds    int    `toml:"hang_timeout_seconds"`
 }
+
+// QuotaConfig controls admission of new agent work.
+type QuotaConfig struct {
+	Enabled         bool    `toml:"enabled"`
+	ReservePercent  float64 `toml:"reserve_percent"`
+	ExhaustedPolicy string  `toml:"exhausted_policy"`
+	UnknownPolicy   string  `toml:"unknown_policy"`
+	MaxWaitSeconds  int     `toml:"max_wait_seconds"`
+	MaxParallel     int     `toml:"max_parallel"`
+}
+
+const (
+	QuotaFailClosed = "fail_closed"
+	QuotaWait       = "wait"
+	QuotaAllow      = "allow"
+)
 
 // Validate checks the configuration for issues that would cause confusing
 // runtime failures. It returns all found issues joined together.
@@ -175,8 +196,8 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.Regent.Enabled && c.Regent.RollbackOnTestFailure && c.Regent.TestCommand == "" {
-		errs = append(errs, fmt.Errorf("regent.test_command must be set when regent.rollback_on_test_failure is true"))
+	if c.Regent.Enabled && c.Regent.RollbackOnTestFailure && c.Regent.TestCommand == "" && !c.Regent.AutoDiscoverTests {
+		errs = append(errs, fmt.Errorf("regent.test_command or regent.auto_discover_tests must be set when regent.rollback_on_test_failure is true"))
 	}
 
 	if c.TUI.AccentColor != "" && !hexColorRe.MatchString(c.TUI.AccentColor) {
@@ -196,6 +217,24 @@ func (c *Config) Validate() error {
 	if c.Worktree.MaxParallel < 1 {
 		errs = append(errs, fmt.Errorf("worktree.max_parallel must be >= 1"))
 	}
+	if c.Quota.ReservePercent < 0 || c.Quota.ReservePercent > 100 {
+		errs = append(errs, fmt.Errorf("quota.reserve_percent must be between 0 and 100"))
+	}
+	if c.Quota.ExhaustedPolicy != QuotaFailClosed && c.Quota.ExhaustedPolicy != QuotaWait {
+		errs = append(errs, fmt.Errorf("quota.exhausted_policy must be one of %s,%s", QuotaFailClosed, QuotaWait))
+	}
+	if c.Quota.UnknownPolicy != QuotaAllow && c.Quota.UnknownPolicy != QuotaFailClosed {
+		errs = append(errs, fmt.Errorf("quota.unknown_policy must be one of %s,%s", QuotaAllow, QuotaFailClosed))
+	}
+	if c.Quota.MaxWaitSeconds < 0 {
+		errs = append(errs, fmt.Errorf("quota.max_wait_seconds must be >= 0"))
+	}
+	if c.Quota.MaxParallel < 1 {
+		errs = append(errs, fmt.Errorf("quota.max_parallel must be >= 1"))
+	}
+	if c.Claude.QuotaSnapshotMaxAgeSeconds < 0 {
+		errs = append(errs, fmt.Errorf("claude.quota_snapshot_max_age_seconds must be >= 0"))
+	}
 
 	return errors.Join(errs...)
 }
@@ -207,10 +246,19 @@ func Defaults() Config {
 		Agent:   AgentConfig{Type: AgentClaude},
 		Harness: HarnessConfig{Claude: "claude", Codex: "codex"},
 		Claude: ClaudeConfig{
-			Model:                 "sonnet",
-			DangerSkipPermissions: true,
+			Model:                      "sonnet",
+			DangerSkipPermissions:      true,
+			QuotaSnapshotMaxAgeSeconds: 300,
 		},
 		Codex: CodexConfig{},
+		Quota: QuotaConfig{
+			Enabled:         false,
+			ReservePercent:  10,
+			ExhaustedPolicy: QuotaFailClosed,
+			UnknownPolicy:   QuotaAllow,
+			MaxWaitSeconds:  3600,
+			MaxParallel:     1,
+		},
 		Build: BuildConfig{
 			PromptFile:    "BUILD.md",
 			MaxIterations: 0,
@@ -328,13 +376,25 @@ codex = "codex"    # executable for the codex harness, e.g. "codex-minimax"
 model = "sonnet"
 max_turns = 0  # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
+quota_snapshot_file = ""
+quota_snapshot_max_age_seconds = 300
 
 [codex]
 model = ""
 
+
+[quota]
+enabled = false
+reserve_percent = 10
+exhausted_policy = "fail_closed"
+max_parallel = 1
+unknown_policy = "allow"
+max_wait_seconds = 3600
+
 [build]
 prompt_file = "BUILD.md"
 max_iterations = 0  # 0 = unlimited
+ludicrous = false
 
 [roam]
 enabled = false     # roam freely across the codebase (--roam flag overrides)
@@ -350,6 +410,7 @@ auto_push = true
 enabled = true
 rollback_on_test_failure = false
 test_command = ""
+auto_discover_tests = false
 max_retries = 3
 retry_backoff_seconds = 30
 hang_timeout_seconds = 300

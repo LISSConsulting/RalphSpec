@@ -2,15 +2,20 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
 	"github.com/LISSConsulting/RalphSpec/internal/codex"
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/git"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
+	"github.com/LISSConsulting/RalphSpec/internal/quota"
 	"github.com/LISSConsulting/RalphSpec/internal/regent"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
 	"github.com/LISSConsulting/RalphSpec/internal/worktree"
 )
 
@@ -26,6 +31,7 @@ type Orchestrator struct {
 	MergeTarget string
 	WorktreeOps worktree.WorktreeOps
 	cfg         *config.Config
+	quotaGates  map[string]*quota.Gate
 
 	// MergedEvents receives tagged events from all agent fan-in goroutines.
 	// Consumers (e.g. TUI) read from this channel.
@@ -38,13 +44,21 @@ type Orchestrator struct {
 
 // New creates an Orchestrator with the given settings.
 func New(cfg *config.Config, ops worktree.WorktreeOps) *Orchestrator {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	maxParallel := cfg.Worktree.MaxParallel
+	if maxParallel < 1 {
+		maxParallel = 1
+	}
 	return &Orchestrator{
 		agents:       make(map[string]*WorktreeAgent),
-		MaxParallel:  cfg.Worktree.MaxParallel,
+		MaxParallel:  maxParallel,
 		AutoMerge:    cfg.Worktree.AutoMerge,
 		MergeTarget:  cfg.Worktree.MergeTarget,
 		WorktreeOps:  ops,
 		cfg:          cfg,
+		quotaGates:   make(map[string]*quota.Gate),
 		MergedEvents: make(chan TaggedLogEntry, mergedEventsBuf),
 	}
 }
@@ -109,6 +123,37 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 	if err != nil {
 		return err
 	}
+	sharedQuotaGate := o.quotaGateFor(agentType, agentImpl)
+	var initialQuotaRelease func()
+	var initialQuotaDecision *quota.Decision
+	if sharedQuotaGate != nil {
+		decision, release, quotaErr := sharedQuotaGate.Acquire(ctx, func(d quota.Decision) {
+			decisionCopy := d
+			entry := TaggedLogEntry{Branch: branch, Agent: agentType, Entry: loop.LogEntry{
+				Kind:          loop.LogInfo,
+				Agent:         agentType,
+				Branch:        branch,
+				Message:       fmt.Sprintf("Quota %s before worker launch: %s", d.Action, d.Reason),
+				QuotaDecision: &decisionCopy,
+			}}
+			select {
+			case o.MergedEvents <- entry:
+			case <-ctx.Done():
+			}
+		})
+		if quotaErr != nil {
+			return fmt.Errorf("orchestrator: quota admission: %w", quotaErr)
+		}
+		if decision.Action == quota.ActionBlock {
+			if release != nil {
+				release()
+			}
+			return fmt.Errorf("orchestrator: quota admission blocked: %s", decision.Reason)
+		}
+		initialQuotaRelease = release
+		decisionCopy := decision
+		initialQuotaDecision = &decisionCopy
+	}
 
 	o.mu.Lock()
 
@@ -117,12 +162,18 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 		switch existing.State {
 		case StateRunning, StateCreating:
 			o.mu.Unlock()
+			if initialQuotaRelease != nil {
+				initialQuotaRelease()
+			}
 			return fmt.Errorf("orchestrator: agent already running on branch %s", branch)
 		}
 	}
 
 	if o.runningCount() >= o.MaxParallel {
 		o.mu.Unlock()
+		if initialQuotaRelease != nil {
+			initialQuotaRelease()
+		}
 		return fmt.Errorf("orchestrator: max parallel agents (%d) reached", o.MaxParallel)
 	}
 
@@ -157,7 +208,29 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 		agent.Error = err
 		o.mu.Unlock()
 		close(events)
+		if initialQuotaRelease != nil {
+			initialQuotaRelease()
+		}
 		return fmt.Errorf("orchestrator: create worktree for %s: %w", branch, err)
+	}
+	var discoveredPlan *testplan.Plan
+	if o.cfg.Regent.AutoDiscoverTests || strings.TrimSpace(o.cfg.Regent.TestCommand) != "" {
+		plan, discoverErr := testplan.Discover(wtPath, o.cfg.Regent.TestCommand)
+		if discoverErr != nil || len(plan.Steps) == 0 {
+			if discoverErr == nil {
+				discoverErr = fmt.Errorf("no high-confidence test command found")
+			}
+			o.mu.Lock()
+			agent.State = StateFailed
+			agent.Error = discoverErr
+			o.mu.Unlock()
+			close(events)
+			if initialQuotaRelease != nil {
+				initialQuotaRelease()
+			}
+			return fmt.Errorf("orchestrator: test plan discovery: %w", discoverErr)
+		}
+		discoveredPlan = &plan
 	}
 
 	o.mu.Lock()
@@ -178,15 +251,19 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 
 	// Build the loop for this worktree.
 	lp := &loop.Loop{
-		Agent:     agentImpl,
-		AgentType: agentType,
-		Git:       git.NewRunner(wtPath),
-		Config:    o.cfg,
-		Dir:       wtPath,
-		Events:    loopEvents,
-		Spec:      specName,
-		SpecDir:   specDir,
-		StopAfter: stopCh,
+		Agent:                agentImpl,
+		AgentType:            agentType,
+		Git:                  git.NewRunner(wtPath),
+		Config:               o.cfg,
+		Dir:                  wtPath,
+		Events:               loopEvents,
+		Spec:                 specName,
+		SpecDir:              specDir,
+		StopAfter:            stopCh,
+		QuotaGate:            sharedQuotaGate,
+		InitialQuotaRelease:  initialQuotaRelease,
+		InitialQuotaDecision: initialQuotaDecision,
+		TestPlan:             discoveredPlan,
 	}
 
 	go func() {
@@ -202,6 +279,8 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 		var runErr error
 		if o.cfg.Regent.Enabled {
 			rgt := regent.New(o.cfg.Regent, wtPath, git.NewRunner(wtPath), events)
+			rgt.SetTestPlan(discoveredPlan)
+			rgt.SetLudicrous(o.cfg.Build.Ludicrous)
 			lp.PostIteration = rgt.RunPostIterationTests
 
 			// Drain loop events → regent state update → fan-in channel.
@@ -243,7 +322,10 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 		}
 
 		o.mu.Lock()
-		if runErr != nil && runErr != context.Canceled {
+		if errors.Is(runErr, loop.ErrOperatorStopped) {
+			agent.State = StateStopped
+			agent.Error = nil
+		} else if runErr != nil && !errors.Is(runErr, context.Canceled) {
 			agent.State = StateFailed
 			agent.Error = runErr
 		} else if agent.State == StateRunning {
@@ -260,6 +342,24 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 	}()
 
 	return nil
+}
+
+func (o *Orchestrator) quotaGateFor(agentType string, agentImpl claude.Agent) *quota.Gate {
+	if !o.cfg.Quota.Enabled {
+		return nil
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if gate := o.quotaGates[agentType]; gate != nil {
+		return gate
+	}
+	var provider quota.Provider
+	if supported, ok := agentImpl.(quota.Provider); ok {
+		provider = supported
+	}
+	gate := quota.NewGate(o.cfg.Quota, provider)
+	o.quotaGates[agentType] = gate
+	return gate
 }
 
 // Stop requests a graceful stop for the agent on branch by closing its StopCh.
@@ -283,7 +383,9 @@ func (o *Orchestrator) Stop(branch string) error {
 	}()
 
 	o.mu.Lock()
-	agent.State = StateStopped
+	if agent.State == StateRunning {
+		agent.State = StateStopped
+	}
 	o.mu.Unlock()
 	return nil
 }
@@ -467,10 +569,14 @@ func (o *Orchestrator) buildAgent() (string, claude.Agent, error) {
 	}
 	switch agentType {
 	case config.AgentClaude:
-		return agentType, &loop.ClaudeAgent{Executable: harness.Claude}, nil
+		return agentType, &loop.ClaudeAgent{
+			Executable:          harness.Claude,
+			QuotaSnapshotFile:   o.cfg.Claude.QuotaSnapshotFile,
+			QuotaSnapshotMaxAge: time.Duration(o.cfg.Claude.QuotaSnapshotMaxAgeSeconds) * time.Second,
+		}, nil
 	case config.AgentCodex:
 		if err := codex.CheckAvailable(harness.Codex); err != nil {
-			return "", nil, fmt.Errorf("codex agent unavailable: %w; install or log into Codex CLI, or use --agent claude", err)
+			return "", nil, fmt.Errorf("codex agent unavailable: %w", err)
 		}
 		return agentType, &codex.Agent{Executable: harness.Codex}, nil
 	default:

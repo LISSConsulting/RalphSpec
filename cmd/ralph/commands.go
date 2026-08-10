@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -10,6 +13,7 @@ import (
 	"github.com/LISSConsulting/RalphSpec/internal/config"
 	"github.com/LISSConsulting/RalphSpec/internal/loop"
 	"github.com/LISSConsulting/RalphSpec/internal/spec"
+	"github.com/LISSConsulting/RalphSpec/internal/testplan"
 )
 
 // loopCmd returns the parent command for autonomous agent loop commands.
@@ -33,15 +37,17 @@ func loopBuildCmd() *cobra.Command {
 			noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
 			roam, _ := cmd.Flags().GetBool("roam")
 			focus, _ := cmd.Flags().GetString("focus")
+			ludicrous, _ := cmd.Flags().GetBool("ludicrous")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeLoop(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag, agent)
+			return executeLoopWithOptions(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag, agent, ludicrous)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
+	cmd.Flags().String("agent", "", "override agent (claude or codex); overrides [agent].type for this run")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
+	cmd.Flags().Bool("ludicrous", false, "continue until structured completion evidence and required tests pass")
 	return cmd
 }
 
@@ -61,7 +67,7 @@ func loopRunCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
+	cmd.Flags().String("agent", "", "override agent (claude or codex); overrides [agent].type for this run")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
@@ -81,15 +87,128 @@ func buildCmd() *cobra.Command {
 			roam, _ := cmd.Flags().GetBool("roam")
 			focus, _ := cmd.Flags().GetString("focus")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeLoop(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag, agent)
+			ludicrous, _ := cmd.Flags().GetBool("ludicrous")
+			return executeLoopWithOptions(loop.ModeBuild, max, noTUI, roam, focus, noColor, worktreeFlag, agent, ludicrous)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
-	cmd.Flags().String("agent", "", "override agent for this run (claude or codex); overrides [agent].type for this invocation only")
+	cmd.Flags().String("agent", "", "override agent (claude or codex); overrides [agent].type for this run")
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
+	cmd.Flags().Bool("ludicrous", false, "continue until structured completion evidence and required tests pass")
 	return cmd
+}
+
+func testsCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "tests", Short: "Discover and run project test plans"}
+	cmd.AddCommand(testDetectCmd(), testRunCmd())
+	return cmd
+}
+
+func testDetectCmd() *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "detect",
+		Short: "Preview the deterministic project test plan without executing it",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			plan, root, err := discoverConfiguredTestPlan()
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(plan)
+			}
+			printTestPlan(cmd, root, plan)
+			if len(plan.Steps) == 0 {
+				return fmt.Errorf("test plan discovery was inconclusive")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "write the plan as JSON")
+	return cmd
+}
+
+func testRunCmd() *cobra.Command {
+	var jsonOutput bool
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Execute the deterministic high-confidence project test plan",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			plan, root, err := discoverConfiguredTestPlan()
+			if err != nil {
+				return err
+			}
+			if len(plan.Steps) == 0 {
+				if !jsonOutput {
+					printTestPlan(cmd, root, plan)
+				}
+				return fmt.Errorf("test plan discovery was inconclusive")
+			}
+			result := testplan.Run(context.Background(), plan)
+			if jsonOutput {
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+					return err
+				}
+			} else {
+				for _, step := range result.Steps {
+					status := "PASS"
+					if !step.Passed {
+						status = "FAIL"
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %s\n", status, displayDir(root, step.Step.Dir), step.Step.Command)
+					if step.Output != "" {
+						fmt.Fprint(cmd.OutOrStdout(), step.Output)
+					}
+				}
+			}
+			if !result.Passed {
+				return fmt.Errorf("test plan failed")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "write execution results as JSON")
+	return cmd
+}
+
+func discoverConfiguredTestPlan() (testplan.Plan, string, error) {
+	root, err := os.Getwd()
+	if err != nil {
+		return testplan.Plan{}, "", err
+	}
+	explicit := ""
+	if cfg, loadErr := config.Load(""); loadErr == nil {
+		explicit = cfg.Regent.TestCommand
+	}
+	plan, err := testplan.Discover(root, explicit)
+	return plan, root, err
+}
+
+func printTestPlan(cmd *cobra.Command, root string, plan testplan.Plan) {
+	for _, step := range plan.Steps {
+		label := strings.ToUpper(string(step.Confidence))
+		if step.Aggregate {
+			label += " aggregate"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%-14s %s  %s\n", label, displayDir(root, step.Dir), step.Command)
+		fmt.Fprintf(cmd.OutOrStdout(), "               source: %s\n", step.Source)
+	}
+	for _, diagnostic := range plan.Diagnostics {
+		fmt.Fprintf(cmd.OutOrStdout(), "diagnostic: %s\n", diagnostic)
+	}
+}
+
+func displayDir(root, dir string) string {
+	relative, err := filepath.Rel(root, dir)
+	if err == nil {
+		if relative == "." {
+			return "."
+		}
+		return relative
+	}
+	return dir
 }
 
 func statusCmd() *cobra.Command {
