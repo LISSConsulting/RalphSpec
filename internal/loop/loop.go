@@ -278,16 +278,17 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 				Agent:   l.agentName(),
 			})
 		}
-		if dirty {
+		switch {
+		case dirty:
 			l.emit(LogEntry{
 				Kind:    LogInfo,
 				Message: "Worktree has uncommitted changes after iteration; not treating agent success as spec completion",
 				Agent:   l.agentName(),
 			})
 			prevSubtype = ""
-		} else if testsPassed {
+		case testsPassed:
 			prevSubtype = subtype
-		} else {
+		default:
 			prevSubtype = ""
 		}
 

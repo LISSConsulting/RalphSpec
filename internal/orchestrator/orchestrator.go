@@ -322,13 +322,14 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 		}
 
 		o.mu.Lock()
-		if errors.Is(runErr, loop.ErrOperatorStopped) {
+		switch {
+		case errors.Is(runErr, loop.ErrOperatorStopped):
 			agent.State = StateStopped
 			agent.Error = nil
-		} else if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		case runErr != nil && !errors.Is(runErr, context.Canceled):
 			agent.State = StateFailed
 			agent.Error = runErr
-		} else if agent.State == StateRunning {
+		case agent.State == StateRunning:
 			agent.State = StateCompleted
 		}
 		finalState := agent.State

@@ -34,7 +34,7 @@ func ReadQuotaSnapshot(path string, maxAge time.Duration) (quota.Snapshot, error
 		return quota.Snapshot{}, fmt.Errorf("stat Claude quota snapshot: %w", err)
 	}
 	if maxAge > 0 && time.Since(info.ModTime()) > maxAge {
-		return quota.Snapshot{}, fmt.Errorf("Claude quota snapshot is stale (modified %s)", info.ModTime().Format(time.RFC3339))
+		return quota.Snapshot{}, fmt.Errorf("claude quota snapshot is stale (modified %s)", info.ModTime().Format(time.RFC3339))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -66,7 +66,7 @@ func ReadQuotaSnapshot(path string, maxAge time.Duration) (quota.Snapshot, error
 		return quota.Snapshot{}, err
 	}
 	if len(snapshot.Windows) == 0 {
-		return quota.Snapshot{}, fmt.Errorf("Claude quota snapshot contains no rate_limits windows")
+		return quota.Snapshot{}, fmt.Errorf("claude quota snapshot contains no rate_limits windows")
 	}
 	return snapshot, nil
 }

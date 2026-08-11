@@ -119,7 +119,9 @@ func testDetectCmd() *cobra.Command {
 			if jsonOutput {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(plan)
 			}
-			printTestPlan(cmd, root, plan)
+			if err := printTestPlan(cmd, root, plan); err != nil {
+				return err
+			}
 			if len(plan.Steps) == 0 {
 				return fmt.Errorf("test plan discovery was inconclusive")
 			}
@@ -142,7 +144,9 @@ func testRunCmd() *cobra.Command {
 			}
 			if len(plan.Steps) == 0 {
 				if !jsonOutput {
-					printTestPlan(cmd, root, plan)
+					if err := printTestPlan(cmd, root, plan); err != nil {
+						return err
+					}
 				}
 				return fmt.Errorf("test plan discovery was inconclusive")
 			}
@@ -157,9 +161,13 @@ func testRunCmd() *cobra.Command {
 					if !step.Passed {
 						status = "FAIL"
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %s\n", status, displayDir(root, step.Step.Dir), step.Step.Command)
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %s\n", status, displayDir(root, step.Step.Dir), step.Step.Command); err != nil {
+						return err
+					}
 					if step.Output != "" {
-						fmt.Fprint(cmd.OutOrStdout(), step.Output)
+						if _, err := fmt.Fprint(cmd.OutOrStdout(), step.Output); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -186,18 +194,25 @@ func discoverConfiguredTestPlan() (testplan.Plan, string, error) {
 	return plan, root, err
 }
 
-func printTestPlan(cmd *cobra.Command, root string, plan testplan.Plan) {
+func printTestPlan(cmd *cobra.Command, root string, plan testplan.Plan) error {
 	for _, step := range plan.Steps {
 		label := strings.ToUpper(string(step.Confidence))
 		if step.Aggregate {
 			label += " aggregate"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%-14s %s  %s\n", label, displayDir(root, step.Dir), step.Command)
-		fmt.Fprintf(cmd.OutOrStdout(), "               source: %s\n", step.Source)
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%-14s %s  %s\n", label, displayDir(root, step.Dir), step.Command); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "               source: %s\n", step.Source); err != nil {
+			return err
+		}
 	}
 	for _, diagnostic := range plan.Diagnostics {
-		fmt.Fprintf(cmd.OutOrStdout(), "diagnostic: %s\n", diagnostic)
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "diagnostic: %s\n", diagnostic); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func displayDir(root, dir string) string {
