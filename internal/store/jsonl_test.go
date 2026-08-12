@@ -104,7 +104,7 @@ func TestIterations(t *testing.T) {
 	now := time.Now()
 	for i := 1; i <= 3; i++ {
 		_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: i, Mode: "build", Branch: "main", Timestamp: now})
-		_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: i, Agent: "claude", CostUSD: float64(i) * 0.01, Duration: float64(i), Subtype: "success", Timestamp: now})
+		_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: i, Agent: "claude", Provider: "kimi", CostUSD: float64(i) * 0.01, Duration: float64(i), Subtype: "success", Timestamp: now})
 	}
 
 	iters, err := s.Iterations()
@@ -124,6 +124,9 @@ func TestIterations(t *testing.T) {
 		}
 		if it.Agent != "claude" {
 			t.Errorf("iters[%d].Agent: expected claude, got %q", i, it.Agent)
+		}
+		if it.Provider != "kimi" {
+			t.Errorf("iters[%d].Provider: expected kimi, got %q", i, it.Provider)
 		}
 		wantCost := float64(wantNum) * 0.01
 		if it.CostUSD != wantCost {
@@ -163,10 +166,10 @@ func TestOpenSession_ReadsPastLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	_ = s.Append(loop.LogEntry{Kind: loop.LogInfo, Agent: "claude", Branch: "main", Timestamp: now})
-	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 1, Agent: "claude", Timestamp: now})
-	_ = s.Append(loop.LogEntry{Kind: loop.LogText, Iteration: 1, Message: "thinking", Timestamp: now})
-	_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: 1, CostUSD: 0.5, Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogInfo, Agent: "claude", Provider: "anthropic", Branch: "main", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterStart, Iteration: 1, Agent: "claude", Provider: "anthropic", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogText, Iteration: 1, Provider: "kimi", Message: "thinking", Timestamp: now})
+	_ = s.Append(loop.LogEntry{Kind: loop.LogIterComplete, Iteration: 1, Provider: "kimi", CostUSD: 0.5, Timestamp: now})
 	sum, err := s.SessionSummary()
 	if err != nil {
 		t.Fatal(err)
@@ -209,6 +212,9 @@ func TestOpenSession_ReadsPastLog(t *testing.T) {
 	}
 	if got.Agent != "claude" || got.Branch != "main" {
 		t.Errorf("metadata: got agent=%q branch=%q", got.Agent, got.Branch)
+	}
+	if got.Provider != "kimi" {
+		t.Errorf("Provider: got %q, want kimi", got.Provider)
 	}
 	if got.TotalCost != 0.5 {
 		t.Errorf("TotalCost: got %v, want 0.5", got.TotalCost)

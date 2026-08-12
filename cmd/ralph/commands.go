@@ -28,8 +28,10 @@ func loopCmd() *cobra.Command {
 
 func loopBuildCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "build",
-		Short: "Run an agent in build mode",
+		Use:     "build",
+		Short:   "Run an agent in build mode",
+		Long:    "Run an agent in build mode.\n\n" + ludicrousHelp,
+		Example: ludicrousExamples,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
 			agent, _ := cmd.Flags().GetString("agent")
@@ -53,8 +55,10 @@ func loopBuildCmd() *cobra.Command {
 
 func loopRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run",
-		Short: "Run the agent loop; use --roam for codebase-wide roaming",
+		Use:     "run",
+		Short:   "Run the agent loop; use --roam for codebase-wide roaming",
+		Long:    "Run the spec-bound agent loop; use --roam for codebase-wide roaming.\n\n" + ludicrousHelp,
+		Example: ludicrousExamples,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
 			agent, _ := cmd.Flags().GetString("agent")
@@ -63,7 +67,8 @@ func loopRunCmd() *cobra.Command {
 			roam, _ := cmd.Flags().GetBool("roam")
 			focus, _ := cmd.Flags().GetString("focus")
 			worktreeFlag, _ := cmd.Flags().GetBool("worktree")
-			return executeRun(max, noTUI, roam, focus, noColor, worktreeFlag, agent)
+			ludicrous, _ := cmd.Flags().GetBool("ludicrous")
+			return executeRunWithOptions(max, noTUI, roam, focus, noColor, worktreeFlag, agent, ludicrous)
 		},
 	}
 	cmd.Flags().Int("max", 0, "override max iterations (0 = use config)")
@@ -71,14 +76,17 @@ func loopRunCmd() *cobra.Command {
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
+	cmd.Flags().Bool("ludicrous", false, "continue until verified completion evidence passes; unbounded unless --max is positive")
 	return cmd
 }
 
 // buildCmd is preserved as a top-level alias for the common build workflow.
 func buildCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "build",
-		Short: "Run an agent in build mode",
+		Use:     "build",
+		Short:   "Run an agent in build mode",
+		Long:    "Run an agent in build mode.\n\n" + ludicrousHelp,
+		Example: ludicrousExamples,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			max, _ := cmd.Flags().GetInt("max")
 			agent, _ := cmd.Flags().GetString("agent")
@@ -96,7 +104,7 @@ func buildCmd() *cobra.Command {
 	cmd.Flags().Bool("roam", false, "roam freely across the codebase instead of targeting the active spec")
 	cmd.Flags().String("focus", "", "constrain roam to a specific topic (e.g. \"UI/UX\")")
 	cmd.Flags().BoolP("worktree", "w", false, "run loop in an isolated git worktree via worktrunk")
-	cmd.Flags().Bool("ludicrous", false, "continue until structured completion evidence and required tests pass")
+	cmd.Flags().Bool("ludicrous", false, "continue until verified completion evidence passes; unbounded unless --max is positive")
 	return cmd
 }
 

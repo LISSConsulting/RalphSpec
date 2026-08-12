@@ -11,6 +11,22 @@ import (
 	"github.com/LISSConsulting/RalphSpec/internal/claude"
 )
 
+func TestLudicrousModeRejectsRoam(t *testing.T) {
+	agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0, 0.1, "success")}}
+	cfg := defaultTestConfig()
+	cfg.Build.Ludicrous = true
+	lp, _ := setupTestLoop(t, agent, &mockGit{branch: "main"}, cfg)
+	lp.Roam = true
+
+	err := lp.Run(context.Background(), ModeBuild, 0)
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined with roam") {
+		t.Fatalf("error = %v", err)
+	}
+	if agent.calls != 0 {
+		t.Fatalf("agent calls = %d, want 0", agent.calls)
+	}
+}
+
 func TestLudicrousModeRequiresVerifiedCompletion(t *testing.T) {
 	agent := &mockAgent{events: []claude.Event{claude.ResultEvent(0, 0.1, "success")}}
 	git := &mockGit{branch: "main", lastCommit: "abc"}

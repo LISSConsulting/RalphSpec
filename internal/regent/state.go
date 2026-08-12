@@ -32,6 +32,7 @@ type State struct {
 	ConsecutiveErrs int             `json:"consecutive_errors"`
 	LastOutputAt    time.Time       `json:"last_output_at"`
 	Agent           string          `json:"agent"`
+	Provider        string          `json:"provider,omitempty"`
 	LastCommit      string          `json:"last_commit"`
 	TotalCostUSD    float64         `json:"total_cost_usd"`
 	Branch          string          `json:"branch"`

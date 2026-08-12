@@ -17,6 +17,7 @@ type HeaderProps struct {
 	WorkDir     string
 	Branch      string
 	Agent       string
+	Provider    string
 	Mode        string
 	Iteration   int
 	MaxIter     int
@@ -98,6 +99,9 @@ func RenderHeader(props HeaderProps, width int, accentStyle lipgloss.Style) stri
 	}
 	if props.Agent != "" {
 		parts = append(parts, "agent: "+props.Agent)
+	}
+	if props.Provider != "" {
+		parts = append(parts, "provider: "+props.Provider)
 	}
 
 	stateLabel := props.StateLabel

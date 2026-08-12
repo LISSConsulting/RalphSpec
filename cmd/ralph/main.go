@@ -53,6 +53,7 @@ func rootCmd() *cobra.Command {
 
 	root.PersistentFlags().Bool("no-tui", false, "disable TUI, use plain text output")
 	root.PersistentFlags().Bool("no-color", false, "disable color output (plain text only)")
+	configureHelp(root)
 
 	root.AddCommand(
 		// Spec kit workflow commands
@@ -67,6 +68,8 @@ func rootCmd() *cobra.Command {
 		// Worktree management
 		worktreeCmd(),
 		testsCmd(),
+		configCmd(),
+		ludicrousCmd(),
 		// Project management
 		statusCmd(),
 		initCmd(),

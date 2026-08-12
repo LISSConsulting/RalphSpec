@@ -165,6 +165,9 @@ var configScaffoldSections = []configScaffoldSection{
 		{key: "danger_skip_permissions", line: `danger_skip_permissions = true`},
 		{key: "quota_snapshot_file", line: `quota_snapshot_file = ""  # JSON written by a Claude status-line script`},
 		{key: "quota_snapshot_max_age_seconds", line: `quota_snapshot_max_age_seconds = 300`},
+		{key: "provider", line: `provider = "anthropic"  # label for the inherited primary environment`},
+		{key: "provider_config_file", line: `provider_config_file = ""  # defaults to ~/.claude/providers.json`},
+		{key: "fallback_providers", line: `fallback_providers = []  # named AIProvider profiles tried in order on quota exhaustion`},
 	}},
 	{name: "codex", entries: []configScaffoldEntry{
 		{key: "model", line: `model = ""`},

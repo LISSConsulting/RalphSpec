@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -361,6 +362,104 @@ func TestClaudeAgentRun(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("quota exhaustion switches to fallback within one invocation", func(t *testing.T) {
+		primaryOutput := `{"type":"result","subtype":"error","is_error":true,"result":"You've hit your session limit","cost_usd":0.01,"duration_ms":100}`
+		agent := setUpFakeClaude(t, exe, 1, primaryOutput, "secondary process warning")
+
+		dir := t.TempDir()
+		fallbackOutput := filepath.Join(dir, "fallback.jsonl")
+		if err := os.WriteFile(fallbackOutput, []byte(`{"type":"result","subtype":"success","cost_usd":0.02,"duration_ms":200}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+		fallbackEnv := replaceTestEnvironment(os.Environ(), map[string]string{
+			"_FAKE_CLAUDE_STDOUT_FILE": fallbackOutput,
+			"_FAKE_CLAUDE_STDERR":      "",
+			"_FAKE_CLAUDE_EXIT":        "0",
+		})
+		agent.ProviderRouter = claude.NewProviderRouter([]claude.ProviderRoute{
+			{Name: "anthropic", Primary: true},
+			{Name: "kimi", Environment: fallbackEnv},
+		})
+
+		events, err := agent.Run(context.Background(), "same prompt", claude.RunOptions{Model: "sonnet"})
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		var terminal []claude.Event
+		var switched bool
+		for event := range events {
+			if strings.Contains(event.Text, "switching Claude to kimi") {
+				switched = true
+			}
+			if event.Outcome != nil {
+				terminal = append(terminal, event)
+			}
+		}
+		if !switched {
+			t.Fatal("missing provider switch diagnostic")
+		}
+		if len(terminal) != 1 {
+			t.Fatalf("terminal events = %d, want 1", len(terminal))
+		}
+		final := terminal[0]
+		if final.Outcome.Kind != claude.OutcomeSuccess || final.Provider != "kimi" {
+			t.Fatalf("final event = %#v", final)
+		}
+		if math.Abs(final.CostUSD-0.03) > 1e-9 || math.Abs(final.Duration-0.3) > 1e-9 {
+			t.Fatalf("aggregate cost/duration = %.2f/%.1f", final.CostUSD, final.Duration)
+		}
+	})
+
+	t.Run("authentication failure does not switch provider", func(t *testing.T) {
+		output := `{"type":"result","subtype":"error","is_error":true,"result":"OAuth session expired and could not be refreshed"}`
+		agent := setUpFakeClaude(t, exe, 1, output, "")
+		agent.ProviderRouter = claude.NewProviderRouter([]claude.ProviderRoute{
+			{Name: "anthropic", Primary: true},
+			{Name: "kimi", Environment: os.Environ()},
+		})
+		events, err := agent.Run(context.Background(), "test", claude.RunOptions{})
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		var terminal claude.Event
+		for event := range events {
+			if event.Outcome != nil {
+				terminal = event
+			}
+		}
+		if terminal.Outcome == nil || terminal.Outcome.Kind != claude.OutcomeAuthenticationRequired || terminal.Provider != "anthropic" {
+			t.Fatalf("terminal = %#v", terminal)
+		}
+		if current := agent.ProviderRouter.Current(); current.Name != "anthropic" {
+			t.Fatalf("active provider = %q, want anthropic", current.Name)
+		}
+	})
+
+	t.Run("quota terminal outranks generic process exit", func(t *testing.T) {
+		output := `{"type":"result","subtype":"error","is_error":true,"result":"You've hit your session limit"}`
+		agent := setUpFakeClaude(t, exe, 1, output, "workspace is not trusted")
+		events, err := agent.Run(context.Background(), "test", claude.RunOptions{})
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		var outcomes []claude.TerminalOutcome
+		var genericExit bool
+		for event := range events {
+			if strings.Contains(event.Error, "claude exited") {
+				genericExit = true
+			}
+			if event.Outcome != nil {
+				outcomes = append(outcomes, *event.Outcome)
+			}
+		}
+		if len(outcomes) != 1 || outcomes[0].Kind != claude.OutcomeQuotaExhausted {
+			t.Fatalf("outcomes = %#v", outcomes)
+		}
+		if genericExit {
+			t.Fatal("generic process-exit diagnostic must not compete with normalized quota outcome")
+		}
+	})
 }
 
 // Verify ClaudeAgent satisfies claude.Agent at compile time.
@@ -385,6 +484,20 @@ func setUpFakeClaude(t *testing.T, exe string, exitCode int, stdout, stderr stri
 		t.Setenv("_FAKE_CLAUDE_STDERR", stderr)
 	}
 	return &ClaudeAgent{Executable: exe}
+}
+
+func replaceTestEnvironment(base []string, replacements map[string]string) []string {
+	result := make([]string, 0, len(base)+len(replacements))
+	for _, entry := range base {
+		key, _, _ := strings.Cut(entry, "=")
+		if _, replace := replacements[key]; !replace {
+			result = append(result, entry)
+		}
+	}
+	for key, value := range replacements {
+		result = append(result, key+"="+value)
+	}
+	return result
 }
 
 func containsArg(args []string, target string) bool {

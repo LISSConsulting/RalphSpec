@@ -317,6 +317,9 @@ max_turns = 0                 # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
 quota_snapshot_file = ""      # status-line JSON snapshot written by operator tooling
 quota_snapshot_max_age_seconds = 300
+provider = "anthropic"         # label for the inherited primary environment
+provider_config_file = ""      # defaults to ~/.claude/providers.json
+fallback_providers = ["kimi-1m", "minimax"] # explicit order; [] disables fallback
 
 [codex]
 model = ""
@@ -374,7 +377,24 @@ path_template = ""            # worktree directory template (uses worktrunk defa
 
 Agent selection precedence is explicit: `--agent` applies to one run, followed by `[agent].type`, then Claude. Supported values are `claude` and `codex`; unknown values fail instead of silently falling back.
 
-Quota admission is opt-in. Codex reads current account rate limits from its documented app-server RPC. Claude reads the latest status-line JSON snapshot from `quota_snapshot_file`; it does not make a hidden API request. Quota exhaustion pauses Regent without consuming generic retries; authentication failures block for operator action.
+Quota admission is opt-in. Codex reads current account rate limits from its documented app-server RPC. Claude reads the latest status-line JSON snapshot from `quota_snapshot_file`; it does not make a hidden API request. A blocked preflight admission or a normalized runtime Claude quota failure switches to the next explicitly configured `fallback_providers` profile. Runtime fallback retries the same prompt in the same iteration. The selected fallback remains active for the run and is shared by parallel worktree workers. After every route is exhausted, Regent pauses without consuming generic retries; authentication, permission, cancellation, and ordinary agent failures never trigger provider switching.
+
+Claude fallback profiles use the same `~/.claude/providers.json` shape and environment-variable allowlist as the `AIProvider` PowerShell module. List the available profile names without printing credentials, then configure their order:
+
+```powershell
+Import-Module AIProvider
+Get-AIProvider
+Clear-AIProvider # ensure Ralph's primary route inherits the normal environment
+```
+
+```toml
+[claude]
+provider = "anthropic"
+provider_config_file = "" # defaults to ~/.claude/providers.json
+fallback_providers = ["kimi-1m", "minimax"]
+```
+
+Ralph reads the profile file directly; it does not mutate the parent PowerShell environment or require `Use-AIProvider` before launch. Each fallback receives an isolated child-process environment, and provider values are never written to logs or state. Provider profiles control their own model, so Ralph omits the primary `claude.model` override after switching. Live output, the TUI header, session summaries, and `.ralph/regent-state.json` identify the active provider.
 
 When `auto_discover_tests = true`, Ralph snapshots one high-confidence plan before agent work. Explicit `test_command` always wins. Recognized metadata includes root `justfile` aggregate gates, package-manager `scripts.test`, Python projects that declare pytest, Go modules/workspaces, and Cargo packages/workspaces. Use `ralph tests detect` to preview and `ralph tests run` to execute the same plan.
 
@@ -401,6 +421,9 @@ When `auto_discover_tests = true`, Ralph snapshots one high-confidence plan befo
 | `ralph init --force` | ⚠️ Overwrite Ralph scaffold files and remove legacy `PLAN.md` |
 | `ralph status` | 📊 Show last run, cost, iteration count, branch |
 | `ralph spec list` | 📋 List all specs and their status |
+| `ralph config schema --json` | 🤖 Emit the complete `ralph.toml` contract as JSON Schema |
+| `ralph help --json` | 🤖 Emit the complete command tree as versioned JSON |
+| `ralph help ludicrous` | 📖 Explain ludicrous-mode evidence, limits, configuration, and examples |
 
 ### Spec Kit Commands
 
@@ -428,6 +451,19 @@ When `auto_discover_tests = true`, Ralph snapshots one high-confidence plan befo
 | `ralph tests detect [--json]` | Preview the run-start test plan without executing commands |
 | `ralph tests run [--json]` | Execute every high-confidence step; fail on inconclusive discovery |
 
+### Human and Agent Help
+
+| Command | Output |
+|---------|--------|
+| `ralph help <command>` | Self-contained human-readable command semantics and examples |
+| `ralph help ludicrous` | Complete ludicrous-mode contract |
+| `ralph help --json` | Versioned machine-readable root command tree, flags, defaults, and examples |
+| `ralph help build --json` | Machine-readable help for one command |
+| `ralph config schema` | Pretty-printed JSON Schema for `ralph.toml` |
+| `ralph config schema --json` | Compact JSON Schema for LLM/tool consumption |
+
+JSON help is plain UTF-8 JSON on stdout with no ANSI formatting. Configuration schema properties include TOML keys, types, defaults, supported enums, bounds, critical behavior descriptions, and `additionalProperties: false`.
+
 ### Flags (all loop commands)
 
 | Flag | Description |
@@ -440,6 +476,8 @@ When `auto_discover_tests = true`, Ralph snapshots one high-confidence plan befo
 | `--worktree` / `-w` | Run loop in an isolated git worktree via worktrunk |
 | `--agent claude\|codex` | Override the configured agent for this invocation only |
 | `--ludicrous` | Build until independent structured completion signals and required test evidence pass |
+
+Ludicrous mode is spec-bound and cannot be combined with `--roam`. Without an explicit positive `--max`, it ignores `build.max_iterations`. Completion requires two consecutive structured successes, no commit during the confirming iteration, a clean worktree, complete declared tasks, and a passing selected test plan. Run `ralph help ludicrous` for the complete contract.
 
 ### Examples
 

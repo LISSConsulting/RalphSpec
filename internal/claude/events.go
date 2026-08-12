@@ -65,6 +65,33 @@ func AsOutcome(err error) (TerminalOutcome, bool) {
 	return outcomeErr.Outcome, true
 }
 
+// PreferOutcome selects the authoritative terminal outcome when a provider
+// emits more than one. Specific operational blockers outrank generic process
+// failures, and every failure outranks success.
+func PreferOutcome(current, candidate TerminalOutcome) TerminalOutcome {
+	if outcomePriority(candidate.Kind) >= outcomePriority(current.Kind) {
+		return candidate
+	}
+	return current
+}
+
+func outcomePriority(kind OutcomeKind) int {
+	switch kind {
+	case OutcomeCancelled:
+		return 5
+	case OutcomeQuotaExhausted, OutcomeAuthenticationRequired:
+		return 4
+	case OutcomeContextExhausted:
+		return 3
+	case OutcomeTransientProvider:
+		return 2
+	case OutcomeAgentFailure:
+		return 1
+	default:
+		return 0
+	}
+}
+
 // ClassifyOutcome maps structured subtype/error text to a terminal category.
 // Adapters should prefer structured provider status and use this shared
 // classifier only as their final compatibility fallback.
@@ -75,7 +102,7 @@ func ClassifyOutcome(message string) TerminalOutcome {
 	case trimmed == "" || lower == "success" || lower == "completed":
 		return TerminalOutcome{Kind: OutcomeSuccess}
 	case containsAny(lower,
-		"usage limit", "rate limit", "rate-limit", "quota", "credit limit",
+		"usage limit", "session limit", "rate limit", "rate-limit", "quota", "credit limit",
 		"credits exhausted", "insufficient credits", "free tier limit"):
 		return TerminalOutcome{Kind: OutcomeQuotaExhausted, Message: trimmed}
 	case containsAny(lower,
@@ -115,6 +142,7 @@ type Event struct {
 	ToolName  string
 	ToolInput map[string]any
 	Text      string
+	Provider  string
 
 	CostUSD  float64
 	Duration float64

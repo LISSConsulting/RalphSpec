@@ -18,12 +18,16 @@ import (
 
 // mockAgent is a test double for claude.Agent.
 type mockAgent struct {
-	events     []claude.Event
-	err        error
-	calls      int
-	lastPrompt string // captures the prompt passed to the most recent Run() call
-	lastOpts   claude.RunOptions
-	onRun      func()
+	events       []claude.Event
+	err          error
+	calls        int
+	lastPrompt   string // captures the prompt passed to the most recent Run() call
+	lastOpts     claude.RunOptions
+	onRun        func()
+	fallbackFrom string
+	fallbackTo   string
+	fallback     bool
+	provider     string
 }
 
 func (m *mockAgent) Run(_ context.Context, prompt string, opts claude.RunOptions) (<-chan claude.Event, error) {
@@ -44,14 +48,35 @@ func (m *mockAgent) Run(_ context.Context, prompt string, opts claude.RunOptions
 	return ch, nil
 }
 
+func (m *mockAgent) CurrentProvider() string {
+	return m.provider
+}
+
+func (m *mockAgent) FailoverQuota() (string, string, bool) {
+	if !m.fallback {
+		return "", "", false
+	}
+	m.fallback = false
+	m.provider = m.fallbackTo
+	return m.fallbackFrom, m.fallbackTo, true
+}
+
 type mockQuotaProvider struct {
-	snapshot quota.Snapshot
-	err      error
-	calls    int
+	snapshot  quota.Snapshot
+	snapshots []quota.Snapshot
+	err       error
+	calls     int
 }
 
 func (m *mockQuotaProvider) Quota(context.Context) (quota.Snapshot, error) {
 	m.calls++
+	if len(m.snapshots) > 0 {
+		index := m.calls - 1
+		if index >= len(m.snapshots) {
+			index = len(m.snapshots) - 1
+		}
+		return m.snapshots[index], m.err
+	}
 	return m.snapshot, m.err
 }
 
@@ -598,7 +623,25 @@ func TestLogOutput(t *testing.T) {
 		}
 	})
 
+	t.Run("specific quota outcome outranks later generic failure", func(t *testing.T) {
+		agent := &mockAgent{events: []claude.Event{
+			claude.ErrorEvent("You've hit your session limit"),
+			claude.ErrorEvent("process exited with status 1"),
+		}}
+		git := &mockGit{branch: "main", lastCommit: "abc test"}
+		cfg := defaultTestConfig()
+		cfg.Build.MaxIterations = 1
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		err := lp.Run(context.Background(), ModeBuild, 0)
+		outcome, ok := claude.AsOutcome(err)
+		if !ok || outcome.Kind != claude.OutcomeQuotaExhausted {
+			t.Fatalf("outcome = %#v, %v; want quota exhausted", outcome, ok)
+		}
+	})
+
 	t.Run("recoverable warning followed by success", func(t *testing.T) {
+
 		agent := &mockAgent{events: []claude.Event{
 			claude.WarningEvent("temporary warning"),
 			claude.ResultEvent(0.01, 0.5, "success"),
@@ -610,6 +653,27 @@ func TestLogOutput(t *testing.T) {
 		lp, _ := setupTestLoop(t, agent, git, cfg)
 		if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
 			t.Fatalf("recoverable warning must not fail iteration: %v", err)
+		}
+	})
+	t.Run("enriches emitted metadata with the active provider", func(t *testing.T) {
+		agent := &mockAgent{
+			events:   []claude.Event{claude.ResultEvent(0.01, 0.5, "success")},
+			provider: "anthropic",
+		}
+		git := &mockGit{branch: "main", lastCommit: "abc test"}
+		cfg := defaultTestConfig()
+		cfg.Build.MaxIterations = 1
+
+		lp, _ := setupTestLoop(t, agent, git, cfg)
+		var entries []LogEntry
+		lp.NotificationHook = func(entry LogEntry) {
+			entries = append(entries, entry)
+		}
+		if err := lp.Run(context.Background(), ModeBuild, 0); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if len(entries) == 0 || entries[0].Provider != "anthropic" {
+			t.Fatalf("first entry = %#v; want provider anthropic", entries)
 		}
 	})
 
@@ -1919,6 +1983,40 @@ func TestQuotaAdmissionBeforeIteration(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "Quota block") {
 		t.Fatalf("quota decision missing from log: %s", buf.String())
+	}
+}
+
+func TestQuotaAdmissionSwitchesConfiguredProviderBeforeIteration(t *testing.T) {
+	agent := &mockAgent{
+		events:       []claude.Event{claude.ResultEvent(0.1, 1, "success")},
+		fallbackFrom: "anthropic",
+		fallbackTo:   "kimi",
+		fallback:     true,
+	}
+	git := &mockGit{branch: "main", lastCommit: "abc test"}
+	cfg := defaultTestConfig()
+	cfg.Quota = config.QuotaConfig{
+		Enabled:         true,
+		ReservePercent:  10,
+		ExhaustedPolicy: config.QuotaFailClosed,
+		UnknownPolicy:   config.QuotaAllow,
+		MaxWaitSeconds:  60,
+		MaxParallel:     1,
+	}
+	provider := &mockQuotaProvider{snapshots: []quota.Snapshot{
+		{Provider: "anthropic", Windows: []quota.Window{{Name: "weekly", UsedPercent: 95}}},
+		{Provider: "kimi"},
+	}}
+	lp, buf := setupTestLoop(t, agent, git, cfg)
+	lp.QuotaGate = quota.NewGate(cfg.Quota, provider)
+	if err := lp.Run(context.Background(), ModeBuild, 1); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if agent.calls != 1 || provider.calls != 2 {
+		t.Fatalf("agent calls = %d, quota calls = %d; want 1, 2", agent.calls, provider.calls)
+	}
+	if !strings.Contains(buf.String(), "switching claude to kimi") {
+		t.Fatalf("provider switch missing from log: %s", buf.String())
 	}
 }
 

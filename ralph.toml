@@ -17,6 +17,9 @@ max_turns = 0  # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
 quota_snapshot_file = ""
 quota_snapshot_max_age_seconds = 300
+provider = "anthropic"
+provider_config_file = ""
+fallback_providers = []
 
 [codex]
 model = ""

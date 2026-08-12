@@ -33,6 +33,7 @@ type JSONL struct {
 	branch     string
 	lastCommit string
 	agent      string
+	provider   string
 }
 
 // NewJSONL creates (or reopens) the session JSONL log in dir. dir is created
@@ -94,6 +95,9 @@ func (j *JSONL) Append(entry loop.LogEntry) error {
 	}
 	if entry.Agent != "" {
 		j.agent = entry.Agent
+	}
+	if entry.Provider != "" {
+		j.provider = entry.Provider
 	}
 	return nil
 }
@@ -232,6 +236,9 @@ func (j *JSONL) rebuildIndex() error {
 				if e.Agent != "" {
 					j.agent = e.Agent
 				}
+				if e.Provider != "" {
+					j.provider = e.Provider
+				}
 			}
 		}
 		offset += lineLen
@@ -288,6 +295,7 @@ func (j *JSONL) SessionSummary() (SessionSummary, error) {
 		SessionID:  j.sessionID,
 		StartedAt:  j.startedAt,
 		Agent:      j.agent,
+		Provider:   j.provider,
 		TotalCost:  total,
 		Iterations: len(j.idx.summaries),
 		LastCommit: j.lastCommit,

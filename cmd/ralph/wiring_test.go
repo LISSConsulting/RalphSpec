@@ -72,6 +72,7 @@ func TestStateTrackerTrackEntry(t *testing.T) {
 		Iteration: 3,
 		TotalCost: 1.50,
 		Agent:     "codex",
+		Provider:  "openai",
 		Commit:    "abc1234 feat: add stuff",
 		Branch:    "feat/test",
 		Mode:      "build",
@@ -85,6 +86,9 @@ func TestStateTrackerTrackEntry(t *testing.T) {
 	}
 	if st.state.Agent != "codex" {
 		t.Errorf("Agent = %q, want %q", st.state.Agent, "codex")
+	}
+	if st.state.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", st.state.Provider, "openai")
 	}
 	if st.state.LastCommit != "abc1234 feat: add stuff" {
 		t.Errorf("LastCommit = %q, want %q", st.state.LastCommit, "abc1234 feat: add stuff")

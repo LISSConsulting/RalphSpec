@@ -231,6 +231,10 @@ func (r *Regent) UpdateState(entry loop.LogEntry) {
 		r.state.Agent = entry.Agent
 		changed = true
 	}
+	if entry.Provider != "" {
+		r.state.Provider = entry.Provider
+		changed = true
+	}
 	if entry.Branch != "" {
 		r.state.Branch = entry.Branch
 		changed = true

@@ -312,6 +312,10 @@ func (s *stateTracker) trackEntry(entry loop.LogEntry) {
 		s.state.Agent = entry.Agent
 		changed = true
 	}
+	if entry.Provider != "" {
+		s.state.Provider = entry.Provider
+		changed = true
+	}
 	if entry.Branch != "" {
 		s.state.Branch = entry.Branch
 		changed = true

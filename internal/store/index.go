@@ -38,11 +38,12 @@ func (idx *fileIndex) onAppend(entry loop.LogEntry, lineOffset, lineLen int64) {
 		idx.pending = &pendingIter{
 			startOffset: lineOffset,
 			summary: IterationSummary{
-				Number:  entry.Iteration,
-				Agent:   entry.Agent,
-				Mode:    entry.Mode,
-				StartAt: entry.Timestamp,
-				Commit:  entry.Commit,
+				Number:   entry.Iteration,
+				Agent:    entry.Agent,
+				Provider: entry.Provider,
+				Mode:     entry.Mode,
+				StartAt:  entry.Timestamp,
+				Commit:   entry.Commit,
 			},
 		}
 	case loop.LogIterComplete:
@@ -56,6 +57,9 @@ func (idx *fileIndex) onAppend(entry loop.LogEntry, lineOffset, lineLen int64) {
 		s.EndAt = entry.Timestamp
 		if entry.Agent != "" {
 			s.Agent = entry.Agent
+		}
+		if entry.Provider != "" {
+			s.Provider = entry.Provider
 		}
 		if entry.Commit != "" {
 			s.Commit = entry.Commit

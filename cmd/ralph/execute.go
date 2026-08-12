@@ -277,12 +277,19 @@ func ralphWorktreeBranch(baseBranch string, now time.Time) string {
 
 // executeRun runs the build loop; --roam switches it to ROAM.md.
 func executeRun(maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string) error {
+	return executeRunWithOptions(maxOverride, noTUI, roam, focus, noColor, useWorktree, agentOverride, false)
+}
+
+func executeRunWithOptions(maxOverride int, noTUI bool, roam bool, focus string, noColor bool, useWorktree bool, agentOverride string, ludicrous bool) error {
 	setup, err := setupLoop(noTUI, roam, noColor, agentOverride)
 	if err != nil {
 		return err
 	}
 	defer setup.cancel()
 	defer setup.cleanup()
+	if ludicrous {
+		setup.cfg.Build.Ludicrous = true
+	}
 
 	if err := validateAgentFlow(setup.agentType, useWorktree, false); err != nil {
 		return err
@@ -373,6 +380,9 @@ func formatStatusWithResult(state regent.State, now time.Time, result statusResu
 	}
 	if state.Agent != "" {
 		fmt.Fprintf(&b, "  %-20s %s\n", "Agent:", state.Agent)
+	}
+	if state.Provider != "" {
+		fmt.Fprintf(&b, "  %-20s %s\n", "Provider:", state.Provider)
 	}
 	mode := state.Mode
 	if state.Ludicrous {
@@ -510,10 +520,20 @@ func buildAgent(cfg *config.Config, agentType string) (claude.Agent, error) {
 		}
 		return &codex.Agent{Executable: exe}, nil
 	case config.AgentClaude:
+		router, err := claude.LoadProviderRouter(
+			cfg.Claude.Provider,
+			cfg.Claude.FallbackProviders,
+			cfg.Claude.ProviderConfigFile,
+			os.Environ(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("claude provider fallback: %w", err)
+		}
 		return &loop.ClaudeAgent{
 			Executable:          exe,
 			QuotaSnapshotFile:   cfg.Claude.QuotaSnapshotFile,
 			QuotaSnapshotMaxAge: time.Duration(cfg.Claude.QuotaSnapshotMaxAgeSeconds) * time.Second,
+			ProviderRouter:      router,
 		}, nil
 	default:
 		return nil, fmt.Errorf("agent.type must be one of %s,%s", config.AgentClaude, config.AgentCodex)

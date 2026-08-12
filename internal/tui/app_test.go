@@ -203,6 +203,7 @@ func TestUpdate_LogEntry_MetadataExtracted(t *testing.T) {
 		Iteration: 3,
 		MaxIter:   10,
 		Agent:     "codex",
+		Provider:  "kimi",
 		Branch:    "feat/test",
 		Mode:      "build",
 		Ludicrous: true,
@@ -222,6 +223,9 @@ func TestUpdate_LogEntry_MetadataExtracted(t *testing.T) {
 	}
 	if m2.agent != "codex" {
 		t.Errorf("agent = %q, want \"codex\"", m2.agent)
+	}
+	if m2.provider != "kimi" {
+		t.Errorf("provider = %q, want \"kimi\"", m2.provider)
 	}
 }
 

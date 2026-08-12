@@ -49,9 +49,10 @@ type LogEntry struct {
 	MaxIter   int
 
 	// Git state
-	Agent  string
-	Branch string
-	Commit string
+	Agent    string
+	Provider string
+	Branch   string
+	Commit   string
 
 	// Mode identifies plan/build execution; Ludicrous marks evidence-bounded
 	// unbounded build mode for live and historical status surfaces.

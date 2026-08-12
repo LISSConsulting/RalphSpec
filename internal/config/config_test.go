@@ -23,6 +23,9 @@ func TestDefaults(t *testing.T) {
 		{"codex.model", cfg.Codex.Model, ""},
 		{"claude.max_turns", cfg.Claude.MaxTurns, 0},
 		{"claude.danger_skip_permissions", cfg.Claude.DangerSkipPermissions, true},
+		{"claude.provider", cfg.Claude.Provider, "anthropic"},
+		{"claude.provider_config_file", cfg.Claude.ProviderConfigFile, ""},
+		{"claude.fallback_providers", len(cfg.Claude.FallbackProviders), 0},
 		{"build.prompt_file", cfg.Build.PromptFile, "BUILD.md"},
 		{"build.max_iterations", cfg.Build.MaxIterations, 0},
 		{"roam.enabled", cfg.Roam.Enabled, false},
@@ -461,6 +464,27 @@ func TestValidate(t *testing.T) {
 		{
 			name:   "positive claude.max_turns is valid",
 			modify: func(c *Config) { c.Claude.MaxTurns = 50 },
+		},
+		{
+			name:    "empty Claude provider",
+			modify:  func(c *Config) { c.Claude.Provider = "" },
+			wantErr: "claude.provider must not be empty",
+		},
+		{
+			name: "duplicate Claude fallback provider",
+			modify: func(c *Config) {
+				c.Claude.Provider = "anthropic"
+				c.Claude.FallbackProviders = []string{"kimi", "KIMI"}
+			},
+			wantErr: `claude.fallback_providers contains duplicate provider "KIMI"`,
+		},
+		{
+			name: "primary repeated as Claude fallback provider",
+			modify: func(c *Config) {
+				c.Claude.Provider = "anthropic"
+				c.Claude.FallbackProviders = []string{"Anthropic"}
+			},
+			wantErr: `claude.fallback_providers contains duplicate provider "Anthropic"`,
 		},
 		{
 			name: "negative regent.max_retries when enabled",

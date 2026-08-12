@@ -99,11 +99,14 @@ type ProjectConfig struct {
 
 // ClaudeConfig controls the Claude CLI invocation.
 type ClaudeConfig struct {
-	Model                      string `toml:"model"`
-	MaxTurns                   int    `toml:"max_turns"`
-	DangerSkipPermissions      bool   `toml:"danger_skip_permissions"`
-	QuotaSnapshotFile          string `toml:"quota_snapshot_file"`
-	QuotaSnapshotMaxAgeSeconds int    `toml:"quota_snapshot_max_age_seconds"`
+	Model                      string   `toml:"model"`
+	MaxTurns                   int      `toml:"max_turns"`
+	DangerSkipPermissions      bool     `toml:"danger_skip_permissions"`
+	QuotaSnapshotFile          string   `toml:"quota_snapshot_file"`
+	QuotaSnapshotMaxAgeSeconds int      `toml:"quota_snapshot_max_age_seconds"`
+	Provider                   string   `toml:"provider"`
+	ProviderConfigFile         string   `toml:"provider_config_file"`
+	FallbackProviders          []string `toml:"fallback_providers"`
 }
 
 // CodexConfig controls the Codex CLI invocation.
@@ -183,6 +186,23 @@ func (c *Config) Validate() error {
 	if c.Claude.MaxTurns < 0 {
 		errs = append(errs, fmt.Errorf("claude.max_turns must be >= 0 (0 = unlimited)"))
 	}
+	if strings.TrimSpace(c.Claude.Provider) == "" {
+		errs = append(errs, fmt.Errorf("claude.provider must not be empty"))
+	}
+	providers := map[string]struct{}{strings.ToLower(strings.TrimSpace(c.Claude.Provider)): {}}
+	for _, provider := range c.Claude.FallbackProviders {
+		trimmed := strings.TrimSpace(provider)
+		if trimmed == "" {
+			errs = append(errs, fmt.Errorf("claude.fallback_providers must not contain empty names"))
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, duplicate := providers[key]; duplicate {
+			errs = append(errs, fmt.Errorf("claude.fallback_providers contains duplicate provider %q", trimmed))
+			continue
+		}
+		providers[key] = struct{}{}
+	}
 
 	if c.Regent.Enabled {
 		if c.Regent.MaxRetries < 0 {
@@ -249,6 +269,7 @@ func Defaults() Config {
 			Model:                      "sonnet",
 			DangerSkipPermissions:      true,
 			QuotaSnapshotMaxAgeSeconds: 300,
+			Provider:                   "anthropic",
 		},
 		Codex: CodexConfig{},
 		Quota: QuotaConfig{
@@ -378,6 +399,9 @@ max_turns = 0  # 0 = unlimited agentic turns per iteration
 danger_skip_permissions = true
 quota_snapshot_file = ""
 quota_snapshot_max_age_seconds = 300
+provider = "anthropic"  # label for the inherited primary environment
+provider_config_file = ""  # defaults to ~/.claude/providers.json
+fallback_providers = []  # named AIProvider profiles tried in order on quota exhaustion
 
 [codex]
 model = ""

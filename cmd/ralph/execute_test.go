@@ -395,6 +395,32 @@ func TestBuildAgent_HarnessOverride(t *testing.T) {
 	}
 }
 
+func TestBuildAgent_WiresConfiguredProviderFallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.json")
+	if err := os.WriteFile(path, []byte(`{"Kimi":{"ANTHROPIC_BASE_URL":"https://example.invalid"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Claude.ProviderConfigFile = path
+	cfg.Claude.FallbackProviders = []string{"kimi"}
+
+	agent, err := buildAgent(&cfg, config.AgentClaude)
+	if err != nil {
+		t.Fatalf("buildAgent: %v", err)
+	}
+	ca, ok := agent.(*loop.ClaudeAgent)
+	if !ok {
+		t.Fatalf("expected *loop.ClaudeAgent, got %T", agent)
+	}
+	if got := ca.CurrentProvider(); got != "anthropic" {
+		t.Fatalf("primary provider = %q, want anthropic", got)
+	}
+	from, to, switched := ca.FailoverQuota()
+	if !switched || from != "anthropic" || to != "Kimi" {
+		t.Fatalf("FailoverQuota = %q, %q, %v", from, to, switched)
+	}
+}
+
 func TestValidateAgentFlow(t *testing.T) {
 	if err := validateAgentFlow(config.AgentCodex, true, false); err != nil {
 		t.Fatalf("codex worktree should be supported, got %v", err)

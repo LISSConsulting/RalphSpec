@@ -17,6 +17,8 @@ func TestRenderHeader_BasicFields(t *testing.T) {
 	props := HeaderProps{
 		ProjectName: "MyProject",
 		Branch:      "main",
+		Agent:       "claude",
+		Provider:    "kimi",
 		Mode:        "build",
 		Iteration:   3,
 		MaxIter:     10,
@@ -28,7 +30,7 @@ func TestRenderHeader_BasicFields(t *testing.T) {
 
 	rendered := RenderHeader(props, 200, accent)
 
-	for _, want := range []string{"MyProject", "main", "build", "3/10", "$1.23", "● BUILDING", "15:30"} {
+	for _, want := range []string{"MyProject", "claude", "kimi", "main", "build", "3/10", "$1.23", "● BUILDING", "15:30"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("RenderHeader() missing %q; output: %q", want, rendered)
 		}

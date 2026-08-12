@@ -41,6 +41,14 @@ type GitOps interface {
 	DiffFromRemote(branch string) (bool, error)
 }
 
+type quotaFallbackAgent interface {
+	FailoverQuota() (from, to string, ok bool)
+}
+
+type providerAgent interface {
+	CurrentProvider() string
+}
+
 // Loop orchestrates the prompt -> claude -> parse -> git iteration cycle.
 type Loop struct {
 	Agent                claude.Agent
@@ -89,6 +97,9 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 
 	promptFile, maxIter := l.modeConfig(mode)
 	ludicrous := mode == ModeBuild && l.Config != nil && l.Config.Build.Ludicrous
+	if ludicrous && l.Roam {
+		return fmt.Errorf("ludicrous mode cannot be combined with roam mode")
+	}
 	if maxOverride > 0 {
 		maxIter = maxOverride
 	}
@@ -204,33 +215,50 @@ func (l *Loop) Run(ctx context.Context, mode Mode, maxOverride int) error {
 				initialQuotaLogged = true
 			}
 		} else if l.QuotaGate != nil {
-			decision, release, quotaErr := l.QuotaGate.Acquire(ctx, func(d quota.Decision) {
-				kind := LogInfo
-				if d.Action == quota.ActionBlock {
-					kind = LogError
-				}
-				decision := cloneQuotaDecision(&d)
-				l.emit(LogEntry{
-					Kind:          kind,
-					Agent:         l.agentName(),
-					Message:       fmt.Sprintf("Quota %s: %s", d.Action, d.Reason),
-					QuotaDecision: decision,
+			for {
+				decision, release, quotaErr := l.QuotaGate.Acquire(ctx, func(d quota.Decision) {
+					kind := LogInfo
+					if d.Action == quota.ActionBlock {
+						kind = LogError
+					}
+					decision := cloneQuotaDecision(&d)
+					l.emit(LogEntry{
+						Kind:          kind,
+						Agent:         l.agentName(),
+						Message:       fmt.Sprintf("Quota %s: %s", d.Action, d.Reason),
+						QuotaDecision: decision,
+					})
 				})
-			})
-			releaseAgentSlot = release
-			if quotaErr != nil {
-				kind := claude.OutcomeAgentFailure
-				if ctx.Err() != nil {
-					kind = claude.OutcomeCancelled
+				releaseAgentSlot = release
+				if quotaErr != nil {
+					kind := claude.OutcomeAgentFailure
+					if ctx.Err() != nil {
+						kind = claude.OutcomeCancelled
+					}
+					return &claude.OutcomeError{Outcome: claude.TerminalOutcome{Kind: kind, Message: quotaErr.Error()}}
 				}
-				return &claude.OutcomeError{Outcome: claude.TerminalOutcome{Kind: kind, Message: quotaErr.Error()}}
-			}
-			if decision.Action == quota.ActionBlock {
-				return &claude.OutcomeError{Outcome: claude.TerminalOutcome{
-					Kind:    claude.OutcomeQuotaExhausted,
-					Message: decision.Reason,
-					RetryAt: decision.ResumeAt,
-				}}
+				if decision.Action != quota.ActionBlock {
+					break
+				}
+				fallback, supportsFallback := l.Agent.(quotaFallbackAgent)
+				from, to, switched := "", "", false
+				if supportsFallback {
+					from, to, switched = fallback.FailoverQuota()
+				}
+				if !switched {
+					return &claude.OutcomeError{Outcome: claude.TerminalOutcome{
+						Kind:     claude.OutcomeQuotaExhausted,
+						Message:  decision.Reason,
+						Provider: from,
+						RetryAt:  decision.ResumeAt,
+					}}
+				}
+				l.emit(LogEntry{
+					Kind:     LogInfo,
+					Agent:    l.agentName(),
+					Provider: to,
+					Message:  fmt.Sprintf("Provider %s quota admission blocked; switching %s to %s", from, l.agentName(), to),
+				})
 			}
 		}
 
@@ -509,25 +537,30 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 	// over a success-looking event from the same invocation.
 	var resultDuration float64
 	var resultSeen bool
+	var provider string
 	var terminal *claude.TerminalOutcome
-	var terminalFailure *claude.TerminalOutcome
 	terminalCount := 0
 	for ev := range events {
+		if ev.Provider != "" {
+			provider = ev.Provider
+		}
 		switch ev.Type {
 		case claude.EventToolUse:
 			l.emit(LogEntry{
 				Kind:      LogToolUse,
 				Message:   fmt.Sprintf("tool: %s  %s", ev.ToolName, summarizeInput(ev.ToolInput)),
 				Agent:     l.agentName(),
+				Provider:  provider,
 				ToolName:  ev.ToolName,
 				ToolInput: summarizeInput(ev.ToolInput),
 			})
 		case claude.EventText:
 			if ev.Text != "" {
 				l.emit(LogEntry{
-					Kind:    LogText,
-					Agent:   l.agentName(),
-					Message: ev.Text,
+					Kind:     LogText,
+					Agent:    l.agentName(),
+					Provider: provider,
+					Message:  ev.Text,
 				})
 			}
 		case claude.EventResult:
@@ -537,36 +570,39 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 			resultSeen = true
 		case claude.EventError:
 			l.emit(LogEntry{
-				Kind:    LogError,
-				Agent:   l.agentName(),
-				Message: fmt.Sprintf("Error: %s", ev.Error),
+				Kind:     LogError,
+				Agent:    l.agentName(),
+				Provider: provider,
+				Message:  fmt.Sprintf("Error: %s", ev.Error),
 			})
 		}
 		if ev.Outcome != nil {
 			terminalCount++
 			outcome := *ev.Outcome
+			if terminal != nil {
+				outcome = claude.PreferOutcome(*terminal, outcome)
+			}
 			terminal = &outcome
-			if !outcome.Successful() {
-				terminalFailure = &outcome
-				if ev.Type == claude.EventResult {
-					l.emit(LogEntry{
-						Kind:    LogError,
-						Agent:   l.agentName(),
-						Message: fmt.Sprintf("Error: %s", outcome.Message),
-					})
-				}
+			if !outcome.Successful() && ev.Type == claude.EventResult {
+				l.emit(LogEntry{
+					Kind:     LogError,
+					Agent:    l.agentName(),
+					Provider: provider,
+					Message:  fmt.Sprintf("Error: %s", outcome.Message),
+				})
 			}
 		}
 	}
 	if terminalCount > 1 {
 		l.emit(LogEntry{
-			Kind:    LogError,
-			Agent:   l.agentName(),
-			Message: fmt.Sprintf("%s emitted %d terminal events; last non-success outcome used", l.agentName(), terminalCount),
+			Kind:     LogError,
+			Agent:    l.agentName(),
+			Provider: provider,
+			Message:  fmt.Sprintf("%s emitted %d terminal events; highest-priority outcome used", l.agentName(), terminalCount),
 		})
 	}
-	if terminalFailure != nil {
-		return cost, subtype, false, false, &claude.OutcomeError{Outcome: *terminalFailure}
+	if terminal != nil && !terminal.Successful() {
+		return cost, subtype, false, false, &claude.OutcomeError{Outcome: *terminal}
 	}
 	if terminal == nil {
 		outcome := claude.TerminalOutcome{
@@ -594,6 +630,7 @@ func (l *Loop) iteration(ctx context.Context, n, maxIter int, prompt, branch str
 			Kind:      LogIterComplete,
 			Message:   msg,
 			Agent:     l.agentName(),
+			Provider:  provider,
 			Iteration: n,
 			CostUSD:   cost,
 			Duration:  resultDuration,
@@ -695,6 +732,11 @@ func (l *Loop) pushIfNeeded(branch string) error {
 func (l *Loop) emit(entry LogEntry) {
 	if entry.Timestamp.IsZero() {
 		entry.Timestamp = l.nowTime()
+	}
+	if entry.Provider == "" {
+		if agent, ok := l.Agent.(providerAgent); ok {
+			entry.Provider = agent.CurrentProvider()
+		}
 	}
 	if l.NotificationHook != nil {
 		l.NotificationHook(entry)

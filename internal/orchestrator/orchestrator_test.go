@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -81,6 +83,34 @@ func TestQuotaGatesAreScopedByAgentType(t *testing.T) {
 	allowed, err := codexGate.Admit(context.Background(), nil)
 	if err != nil || allowed.Action != quota.ActionAllow {
 		t.Fatalf("Codex decision = %#v, %v", allowed, err)
+	}
+}
+
+func TestBuildAgentSharesConfiguredProviderRouter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.json")
+	if err := os.WriteFile(path, []byte(`{"kimi":{"ANTHROPIC_BASE_URL":"https://example.invalid"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultCfg()
+	cfg.Claude.ProviderConfigFile = path
+	cfg.Claude.FallbackProviders = []string{"kimi"}
+	o := New(cfg, &fakeWorktreeOps{})
+
+	_, firstAgent, err := o.buildAgent()
+	if err != nil {
+		t.Fatalf("first buildAgent: %v", err)
+	}
+	first := firstAgent.(*loop.ClaudeAgent)
+	if from, to, ok := first.FailoverQuota(); !ok || from != "anthropic" || to != "kimi" {
+		t.Fatalf("FailoverQuota = %q, %q, %v", from, to, ok)
+	}
+
+	_, secondAgent, err := o.buildAgent()
+	if err != nil {
+		t.Fatalf("second buildAgent: %v", err)
+	}
+	if got := secondAgent.(*loop.ClaudeAgent).CurrentProvider(); got != "kimi" {
+		t.Fatalf("shared provider = %q, want kimi", got)
 	}
 }
 

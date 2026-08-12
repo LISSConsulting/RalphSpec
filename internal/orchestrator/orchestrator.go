@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,17 +22,24 @@ import (
 
 const mergedEventsBuf = 256
 
+type quotaFallbackAgent interface {
+	FailoverQuota() (from, to string, ok bool)
+}
+
 // Orchestrator manages the lifecycle of multiple WorktreeAgents.
 type Orchestrator struct {
-	mu          sync.Mutex
-	agents      map[string]*WorktreeAgent // keyed by branch name
-	fanInWg     sync.WaitGroup
-	MaxParallel int
-	AutoMerge   bool
-	MergeTarget string
-	WorktreeOps worktree.WorktreeOps
-	cfg         *config.Config
-	quotaGates  map[string]*quota.Gate
+	mu               sync.Mutex
+	agents           map[string]*WorktreeAgent // keyed by branch name
+	fanInWg          sync.WaitGroup
+	MaxParallel      int
+	AutoMerge        bool
+	MergeTarget      string
+	WorktreeOps      worktree.WorktreeOps
+	cfg              *config.Config
+	quotaGates       map[string]*quota.Gate
+	claudeRouter     *claude.ProviderRouter
+	claudeRouterErr  error
+	claudeRouterOnce sync.Once
 
 	// MergedEvents receives tagged events from all agent fan-in goroutines.
 	// Consumers (e.g. TUI) read from this channel.
@@ -127,32 +135,54 @@ func (o *Orchestrator) Launch(ctx context.Context, branch, specName, specDir str
 	var initialQuotaRelease func()
 	var initialQuotaDecision *quota.Decision
 	if sharedQuotaGate != nil {
-		decision, release, quotaErr := sharedQuotaGate.Acquire(ctx, func(d quota.Decision) {
-			decisionCopy := d
+		for {
+			decision, release, quotaErr := sharedQuotaGate.Acquire(ctx, func(d quota.Decision) {
+				decisionCopy := d
+				entry := TaggedLogEntry{Branch: branch, Agent: agentType, Entry: loop.LogEntry{
+					Kind:          loop.LogInfo,
+					Agent:         agentType,
+					Branch:        branch,
+					Message:       fmt.Sprintf("Quota %s before worker launch: %s", d.Action, d.Reason),
+					QuotaDecision: &decisionCopy,
+				}}
+				select {
+				case o.MergedEvents <- entry:
+				case <-ctx.Done():
+				}
+			})
+			if quotaErr != nil {
+				return fmt.Errorf("orchestrator: quota admission: %w", quotaErr)
+			}
+			if decision.Action != quota.ActionBlock {
+				initialQuotaRelease = release
+				decisionCopy := decision
+				initialQuotaDecision = &decisionCopy
+				break
+			}
+			if release != nil {
+				release()
+			}
+			fallback, supportsFallback := agentImpl.(quotaFallbackAgent)
+			from, to, switched := "", "", false
+			if supportsFallback {
+				from, to, switched = fallback.FailoverQuota()
+			}
+			if !switched {
+				return fmt.Errorf("orchestrator: quota admission blocked: %s", decision.Reason)
+			}
 			entry := TaggedLogEntry{Branch: branch, Agent: agentType, Entry: loop.LogEntry{
-				Kind:          loop.LogInfo,
-				Agent:         agentType,
-				Branch:        branch,
-				Message:       fmt.Sprintf("Quota %s before worker launch: %s", d.Action, d.Reason),
-				QuotaDecision: &decisionCopy,
+				Kind:     loop.LogInfo,
+				Agent:    agentType,
+				Provider: to,
+				Branch:   branch,
+				Message:  fmt.Sprintf("Provider %s quota admission blocked; switching %s to %s", from, agentType, to),
 			}}
 			select {
 			case o.MergedEvents <- entry:
 			case <-ctx.Done():
+				return ctx.Err()
 			}
-		})
-		if quotaErr != nil {
-			return fmt.Errorf("orchestrator: quota admission: %w", quotaErr)
 		}
-		if decision.Action == quota.ActionBlock {
-			if release != nil {
-				release()
-			}
-			return fmt.Errorf("orchestrator: quota admission blocked: %s", decision.Reason)
-		}
-		initialQuotaRelease = release
-		decisionCopy := decision
-		initialQuotaDecision = &decisionCopy
 	}
 
 	o.mu.Lock()
@@ -570,10 +600,22 @@ func (o *Orchestrator) buildAgent() (string, claude.Agent, error) {
 	}
 	switch agentType {
 	case config.AgentClaude:
+		o.claudeRouterOnce.Do(func() {
+			o.claudeRouter, o.claudeRouterErr = claude.LoadProviderRouter(
+				o.cfg.Claude.Provider,
+				o.cfg.Claude.FallbackProviders,
+				o.cfg.Claude.ProviderConfigFile,
+				os.Environ(),
+			)
+		})
+		if o.claudeRouterErr != nil {
+			return "", nil, fmt.Errorf("claude provider fallback: %w", o.claudeRouterErr)
+		}
 		return agentType, &loop.ClaudeAgent{
 			Executable:          harness.Claude,
 			QuotaSnapshotFile:   o.cfg.Claude.QuotaSnapshotFile,
 			QuotaSnapshotMaxAge: time.Duration(o.cfg.Claude.QuotaSnapshotMaxAgeSeconds) * time.Second,
+			ProviderRouter:      o.claudeRouter,
 		}, nil
 	case config.AgentCodex:
 		if err := codex.CheckAvailable(harness.Codex); err != nil {

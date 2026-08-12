@@ -46,6 +46,7 @@ type Model struct {
 	iteration  int
 	maxIter    int
 	agent      string
+	provider   string
 	mode       string
 	branch     string
 	totalCost  float64
@@ -647,6 +648,9 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 	if entry.Agent != "" {
 		m.agent = entry.Agent
 	}
+	if entry.Provider != "" {
+		m.provider = entry.Provider
+	}
 	if entry.MaxIter > 0 {
 		m.maxIter = entry.MaxIter
 	}
@@ -682,6 +686,7 @@ func (m Model) handleLogEntry(msg logEntryMsg) (tea.Model, tea.Cmd) {
 		summary := store.IterationSummary{
 			Number:   entry.Iteration,
 			Agent:    entry.Agent,
+			Provider: entry.Provider,
 			Mode:     entry.Mode,
 			CostUSD:  entry.CostUSD,
 			Duration: entry.Duration,
@@ -1012,6 +1017,7 @@ func (m Model) View() string {
 		WorkDir:     m.workDir,
 		Branch:      m.branch,
 		Agent:       m.agent,
+		Provider:    m.provider,
 		Mode:        m.mode,
 		Iteration:   m.iteration,
 		MaxIter:     m.maxIter,

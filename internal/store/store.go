@@ -35,6 +35,7 @@ type Store interface {
 type IterationSummary struct {
 	Number   int
 	Agent    string
+	Provider string
 	Mode     string
 	CostUSD  float64
 	Duration float64
@@ -48,6 +49,7 @@ type IterationSummary struct {
 type SessionSummary struct {
 	SessionID  string
 	Agent      string
+	Provider   string
 	StartedAt  time.Time
 	TotalCost  float64
 	Iterations int

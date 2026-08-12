@@ -112,7 +112,7 @@ func TestScaffoldProject(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{`name = "Custom"`, `[agent]`, `type = "claude"`, `stdin_steer = false`, `[harness]`, `claude = "claude"`, `codex = "codex"`, `[quota]`, `reserve_percent = 10`, `max_parallel = 1`, `ludicrous = false`, `auto_discover_tests = false`, `[roam]`, `prompt_file = "ROAM.md"`, `focus = ""`, `[worktree]`, `max_parallel = 5`} {
+		for _, want := range []string{`name = "Custom"`, `[agent]`, `type = "claude"`, `stdin_steer = false`, `[harness]`, `claude = "claude"`, `codex = "codex"`, `[quota]`, `reserve_percent = 10`, `max_parallel = 1`, `ludicrous = false`, `auto_discover_tests = false`, `provider = "anthropic"`, `provider_config_file = ""`, `fallback_providers = []`, `[roam]`, `prompt_file = "ROAM.md"`, `focus = ""`, `[worktree]`, `max_parallel = 5`} {
 			if !strings.Contains(string(updatedConfig), want) {
 				t.Errorf("updated ralph.toml should contain %q", want)
 			}

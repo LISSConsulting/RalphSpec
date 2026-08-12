@@ -9,6 +9,7 @@ func TestClassifyOutcome(t *testing.T) {
 	}{
 		{"success", OutcomeSuccess},
 		{"Usage limit reached for 5-hour window", OutcomeQuotaExhausted},
+		{"You've hit your session limit · resets 5:20pm", OutcomeQuotaExhausted},
 		{"OAuth session expired and could not be refreshed", OutcomeAuthenticationRequired},
 		{"API Error: The model has reached its context window limit.", OutcomeContextExhausted},
 		{"provider temporarily unavailable: status 503", OutcomeTransientProvider},
@@ -31,5 +32,24 @@ func TestAsOutcomeWraps(t *testing.T) {
 	got, ok := AsOutcome(err)
 	if !ok || got != want {
 		t.Fatalf("AsOutcome = %#v, %v; want %#v, true", got, ok, want)
+	}
+}
+
+func TestPreferOutcomeKeepsSpecificBlockerOverGenericExit(t *testing.T) {
+	quota := TerminalOutcome{Kind: OutcomeQuotaExhausted, Message: "session limit"}
+	generic := TerminalOutcome{Kind: OutcomeAgentFailure, Message: "exit status 1"}
+	if got := PreferOutcome(quota, generic); got != quota {
+		t.Fatalf("PreferOutcome = %#v, want quota outcome", got)
+	}
+	if got := PreferOutcome(generic, quota); got != quota {
+		t.Fatalf("PreferOutcome reverse = %#v, want quota outcome", got)
+	}
+}
+
+func TestPreferOutcomeFailureOverridesSuccess(t *testing.T) {
+	success := TerminalOutcome{Kind: OutcomeSuccess}
+	failure := TerminalOutcome{Kind: OutcomeAgentFailure, Message: "failed"}
+	if got := PreferOutcome(success, failure); got != failure {
+		t.Fatalf("PreferOutcome = %#v, want failure", got)
 	}
 }

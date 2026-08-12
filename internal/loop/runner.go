@@ -22,6 +22,7 @@ type ClaudeAgent struct {
 	QuotaSnapshotFile   string
 	QuotaSnapshotMaxAge time.Duration
 	Executable          string
+	ProviderRouter      *claude.ProviderRouter
 }
 
 // NewClaudeAgent creates a ClaudeAgent that uses the default "claude" binary.
@@ -32,6 +33,82 @@ func NewClaudeAgent() *ClaudeAgent {
 // Run spawns the Claude CLI with the given prompt and streams parsed events back
 // on the returned channel. The channel is closed when the process exits.
 func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOptions) (<-chan claude.Event, error) {
+	route := claude.ProviderRoute{}
+	if a.ProviderRouter != nil {
+		route = a.ProviderRouter.Current()
+	}
+	events, err := a.runRoute(ctx, prompt, opts, route)
+	if err != nil {
+		return nil, err
+	}
+	if a.ProviderRouter == nil {
+		return events, nil
+	}
+
+	ch := make(chan claude.Event, 64)
+	go func() {
+		defer close(ch)
+		var totalCost, totalDuration float64
+		for {
+			terminal, ok := forwardProviderAttempt(ch, events, route)
+			if !ok {
+				terminal = claude.ErrorEvent("claude provider stream closed without a terminal outcome")
+			}
+			totalCost += terminal.CostUSD
+			totalDuration += terminal.Duration
+			if terminal.Outcome != nil && terminal.Outcome.Kind == claude.OutcomeQuotaExhausted {
+				next, available := a.ProviderRouter.Failover(route.Name)
+				if available {
+					notice := claude.TextEvent(fmt.Sprintf("Provider %s quota exhausted; switching Claude to %s", route.Name, next.Name))
+					notice.Provider = next.Name
+					ch <- notice
+					route = next
+					events, err = a.runRoute(ctx, prompt, opts, route)
+					if err == nil {
+						continue
+					}
+					terminal = claude.ErrorEvent(fmt.Sprintf("start Claude fallback provider %s: %v", route.Name, err))
+				}
+			}
+			terminal.Provider = route.Name
+			terminal.CostUSD += totalCost - terminal.CostUSD
+			terminal.Duration += totalDuration - terminal.Duration
+			if terminal.Outcome != nil && terminal.Outcome.Provider == "" {
+				terminal.Outcome.Provider = route.Name
+			}
+			ch <- terminal
+			return
+		}
+	}()
+	return ch, nil
+}
+
+func forwardProviderAttempt(out chan<- claude.Event, events <-chan claude.Event, route claude.ProviderRoute) (claude.Event, bool) {
+	var selected claude.Event
+	terminalSeen := false
+	for ev := range events {
+		ev.Provider = route.Name
+		if ev.Outcome == nil {
+			out <- ev
+			continue
+		}
+		if !terminalSeen || claude.PreferOutcome(*selected.Outcome, *ev.Outcome) == *ev.Outcome {
+			selected = ev
+		}
+		terminalSeen = true
+	}
+	if terminalSeen && selected.Outcome.Provider == "" {
+		selected.Outcome.Provider = route.Name
+	}
+	return selected, terminalSeen
+}
+
+func (a *ClaudeAgent) runRoute(ctx context.Context, prompt string, opts claude.RunOptions, route claude.ProviderRoute) (<-chan claude.Event, error) {
+	if !route.Primary && route.Name != "" {
+		// AIProvider profiles select their own model through environment
+		// variables; a primary --model override must not leak into a fallback.
+		opts.Model = ""
+	}
 	args := a.buildArgs(prompt, opts)
 
 	exe := a.Executable
@@ -42,6 +119,9 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 	cmd := exec.CommandContext(ctx, exe, args...)
 	if opts.Dir != "" {
 		cmd.Dir = opts.Dir
+	}
+	if route.Environment != nil {
+		cmd.Env = route.Environment
 	}
 	isolateProcess(cmd)
 	// Override the default ctx-cancel behaviour (Kill on the top-level process
@@ -82,10 +162,14 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 	ch := make(chan claude.Event, 64)
 	go func() {
 		defer close(ch)
-		terminalSeen := false
+		var terminal *claude.TerminalOutcome
 		for ev := range parsed {
 			if ev.Outcome != nil {
-				terminalSeen = true
+				outcome := *ev.Outcome
+				if terminal != nil {
+					outcome = claude.PreferOutcome(*terminal, outcome)
+				}
+				terminal = &outcome
 			}
 			ch <- ev
 		}
@@ -95,12 +179,14 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 			outcome := claude.TerminalOutcome{Kind: claude.OutcomeCancelled, Message: ctx.Err().Error()}
 			ch <- claude.Event{Type: claude.EventError, Timestamp: time.Now(), Error: outcome.Message, Outcome: &outcome}
 		case waitErr != nil:
-			msg := fmt.Sprintf("claude exited: %v", waitErr)
-			if detail := strings.TrimSpace(stderrBuf.String()); detail != "" {
-				msg = fmt.Sprintf("claude exited: %v: %s", waitErr, detail)
+			if terminal == nil || terminal.Successful() {
+				msg := fmt.Sprintf("claude exited: %v", waitErr)
+				if detail := strings.TrimSpace(stderrBuf.String()); detail != "" {
+					msg = fmt.Sprintf("claude exited: %v: %s", waitErr, detail)
+				}
+				ch <- claude.ErrorEvent(msg)
 			}
-			ch <- claude.ErrorEvent(msg)
-		case !terminalSeen:
+		case terminal == nil:
 			ch <- claude.ErrorEvent("claude exited without a terminal result")
 		}
 		close(stdinDone)
@@ -109,9 +195,37 @@ func (a *ClaudeAgent) Run(ctx context.Context, prompt string, opts claude.RunOpt
 	return ch, nil
 }
 
-// Quota returns the latest Claude status-line snapshot configured for Ralph.
+// Quota returns the latest primary Claude status-line snapshot. Named fallback
+// providers have no documented quota API, so their admission state is unknown.
 func (a *ClaudeAgent) Quota(context.Context) (quota.Snapshot, error) {
+	if a.ProviderRouter != nil {
+		route := a.ProviderRouter.Current()
+		if !route.Primary {
+			return quota.Snapshot{Agent: "claude", Provider: route.Name, ObservedAt: time.Now()}, nil
+		}
+	}
 	return claude.ReadQuotaSnapshot(a.QuotaSnapshotFile, a.QuotaSnapshotMaxAge)
+}
+
+// CurrentProvider returns the provider route used for the next invocation.
+func (a *ClaudeAgent) CurrentProvider() string {
+	if a.ProviderRouter == nil {
+		return ""
+	}
+	return a.ProviderRouter.Current().Name
+}
+
+// FailoverQuota advances to the next explicitly configured provider route.
+func (a *ClaudeAgent) FailoverQuota() (string, string, bool) {
+	if a.ProviderRouter == nil {
+		return "", "", false
+	}
+	current := a.ProviderRouter.Current()
+	next, ok := a.ProviderRouter.Failover(current.Name)
+	if !ok {
+		return current.Name, "", false
+	}
+	return current.Name, next.Name, true
 }
 
 // steerStdin writes the iteration prompt as the first stream-JSON user
